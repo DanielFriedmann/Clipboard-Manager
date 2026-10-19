@@ -27,7 +27,15 @@ class ClipboardHistory:
 
     def remove_item(self, item):
         if item in self.history:
-            self.history.remove(item)     
+            self.history.remove(item) 
+
+    def toggle_pinned(self, item):
+        item.is_pinned = not item.is_pinned
+
+    def get_history(self):
+        pinned_items = [item for item in self.history if item.is_pinned]
+        unpinned_items = [item for item in self.history if not item.is_pinned]
+        return pinned_items + unpinned_items
 
         
     def print_history(self):

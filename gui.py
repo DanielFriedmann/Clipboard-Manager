@@ -14,6 +14,7 @@ CARD = ("#ffffff", "#2b2b2b")
 CARD_HOVER = ("#e8f0fb", "#3a3a3a")
 TEXT = ("#1a1a1a", "#f2f2f2")
 MUTED = ("#6b6b6b", "#a0a0a0")
+ACCENT = ("#0067c0", "#4ca0e0")
 
 FONT = ("Segoe UI", 13)
 FONT_TITLE = ("Segoe UI Semibold", 18)
@@ -50,6 +51,9 @@ def on_delete_click(item):
     history.remove_item(item)
     refresh_cards()
 
+def on_pin_click(item):
+    history.toggle_pinned(item)
+    refresh_cards()
 
 def on_card_leave(card):
   
@@ -66,16 +70,30 @@ def create_card(item):
     # Delete button
 
     delete_button = ctk.CTkButton(
-    card,
-    text="✕",
-    width=28,
-    height=28,
-    fg_color="transparent",
-    hover_color=CARD_HOVER,
-    text_color=MUTED,
-    command=lambda i=item: on_delete_click(i),
-    )
+        card,
+        text="✕",
+        width=28,
+        height=28,
+        fg_color="transparent",
+        hover_color=CARD_HOVER,
+        text_color=MUTED,
+        command=lambda i=item: on_delete_click(i),
+        )
     delete_button.pack(side="right", padx=(0, 8))
+
+    # Pin button
+
+    pin_button = ctk.CTkButton(
+        card,
+        text="★" if item.is_pinned else "☆",
+        width=28,
+        height=28,
+        fg_color="transparent",
+        hover_color=CARD_HOVER,
+        text_color=ACCENT if item.is_pinned else MUTED,
+        command=lambda i=item: on_pin_click(i),
+        )
+    pin_button.pack(side="right")
 
     #Entry Preview
 
@@ -106,9 +124,9 @@ def refresh_cards():
         widget.destroy()
 
     if not history.history:
-        ctk.CTkLabel(history.history, text="Noch nichts kopiert", font=FONT, text_color=MUTED).pack(pady=24)
+        ctk.CTkLabel(list_frame, text="Noch nichts kopiert", font=FONT, text_color=MUTED).pack(pady=24)
 
-    for item in history.history:
+    for item in history.get_history():
         create_card(item)
 
     count = len(history.history)
