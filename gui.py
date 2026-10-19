@@ -42,8 +42,6 @@ def make_preview(text, max_length=PREVIEW_LENGTH):
         preview = preview[:max_length - 1] + "…"
     return preview
 
-
-
 def on_card_click(item):
     service.set_text(item.content)
 
@@ -53,6 +51,10 @@ def on_delete_click(item):
 
 def on_pin_click(item):
     history.toggle_pinned(item)
+    refresh_cards()
+
+def on_clear_click():
+    history.clear_history()
     refresh_cards()
 
 def on_card_leave(card):
@@ -148,16 +150,28 @@ def check_queue():
 
 root = ctk.CTk()
 root.title("Zwischenablagen Manager")
-root.geometry("420x520")
-root.minsize(320, 320)
+root.geometry("820x520")
+root.minsize(420, 420)
 
 
 header = ctk.CTkFrame(root, fg_color="transparent")
 header.pack(fill="x", padx=16, pady=(14, 8))
 
 ctk.CTkLabel(header, text="Zwischenablage", font=FONT_TITLE).pack(side="left")
+
+clear_button = ctk.CTkButton(
+    header,
+    text="Alle löschen",
+    width=90,
+    height=28,
+    font=FONT_SMALL,
+    command=on_clear_click,
+)
+clear_button.pack(side="right")
+
 count_label = ctk.CTkLabel(header, text="0 Einträge", font=FONT_SMALL, text_color=MUTED)
-count_label.pack(side="right")
+count_label.pack(side="right", padx=(0, 10))
+
 
 
 list_frame = ctk.CTkScrollableFrame(root, fg_color="transparent")
