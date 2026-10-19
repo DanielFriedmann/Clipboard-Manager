@@ -4,6 +4,7 @@ import customtkinter as ctk
 
 from clipboard_service import ClipboardService
 from history import ClipboardHistory
+from tkinter import messagebox
 
 
 ctk.set_appearance_mode("system")      # folgt der Windows Darstellung
@@ -23,11 +24,18 @@ FONT_SMALL = ("Segoe UI", 11)
 PREVIEW_LENGTH = 60
 DRAG_THRESHOLD = 5 
 
+SORT_OPTIONS = {
+    "Eigene Reihenfolge": "priority",
+    "Zeitstempel": "time",
+    "Inhalt": "content"
+}
+
 
 history = ClipboardHistory()
 text_queue = queue.Queue()   # threadsichere Übergabe Service → GUI
 card_items = {} 
-drag = {"item": None, "start_y": 0, "active": False, "target": None}
+drag = {"item": None, "start_y": 0, "active": False, "target": None} # Wichtiges Dicitonary
+view = {"sort_by": "priority", "descending": False, "search": "", "favorites_only": False} # Wichtiges Dicitonary
 
 
 def on_new_text(text):
@@ -57,8 +65,27 @@ def on_pin_click(item):
     refresh_cards()
 
 def on_clear_click():
-    history.clear_history()
+    items = get_visible_items()
+    count = len([item for item in items if not item.is_favorite])
+
+    if count == 0:
+        messagebox.showinfo("Löschen", "Keine Einträge zum Löschen. Favoriten werden nicht gelöscht.")
+        return
+
+    text = "1 Eintrag" if count == 1 else f"{count} Einträge"
+    if not messagebox.askyesno("Löschen", f"{text} löschen?\nFavoriten bleiben erhalten."):
+        return
+
+    history.clear_items(items)
     refresh_cards()
+
+def get_visible_items():
+    return history.get_history(
+        sort_by=view["sort_by"],
+        descending=view["descending"],
+        search=view["search"],
+        favorites_only=view["favorites_only"],
+    )
 
 def on_card_leave(card):
   
@@ -75,7 +102,6 @@ def find_card(widget):
         widget = widget.master
     return None
 
-
 def set_drop_target(card):
     
     old = drag["target"]
@@ -87,25 +113,10 @@ def set_drop_target(card):
         card.configure(border_width=2, border_color=ACCENT)
     drag["target"] = card
 
-
 def on_press(event, item):
     drag["item"] = item
     drag["start_y"] = event.y_root
     drag["active"] = False
-
-
-def on_motion(event):
-    if drag["item"] is None:
-        return
-
-    if not drag["active"] and abs(event.y_root - drag["start_y"]) > DRAG_THRESHOLD:
-        drag["active"] = True
-        root.configure(cursor="fleur")   # Verschiebe-Mauszeiger
-
-    if drag["active"]:
-        widget = root.winfo_containing(event.x_root, event.y_root)
-        set_drop_target(find_card(widget))
-
 
 def on_release(event):
     item = drag["item"]
@@ -115,7 +126,7 @@ def on_release(event):
     if drag["active"]:
         root.configure(cursor="")
         card = find_card(root.winfo_containing(event.x_root, event.y_root))
-        if card is not None:
+        if card is not None and drag_allowed():
             target = card_items[card]            
             middle = card.winfo_rooty() + card.winfo_height() / 2
             history.move_item(item, target, after=event.y_root > middle)
@@ -125,6 +136,40 @@ def on_release(event):
         drag.update(item=None, active=False, target=None)
         on_card_click(item)
 
+def drag_allowed():
+    return view["sort_by"] == "priority" and not view["descending"]
+
+def on_search_change(event):
+    view["search"] = search_entry.get()
+    refresh_cards()
+
+def on_sort_change(choice):
+    view["sort_by"] = SORT_OPTIONS[choice]
+    refresh_cards()
+
+def on_direction_click():
+    view["descending"] = not view["descending"]
+    direction_button.configure(text="↓" if view["descending"] else "↑")
+    refresh_cards()
+
+def on_favorites_toggle():
+    view["favorites_only"] = favorites_switch.get() == 1
+    refresh_cards()
+
+def on_motion(event):
+    if drag["item"] is None:
+        return
+
+    if not drag["active"] and abs(event.y_root - drag["start_y"]) > DRAG_THRESHOLD:
+        drag["active"] = True
+        root.configure(cursor="fleur")   # Verschiebe-Mauszeiger
+
+    if drag["active"] and drag_allowed():
+        widget = root.winfo_containing(event.x_root, event.y_root)
+        set_drop_target(find_card(widget))
+
+    if drag_allowed():
+        root.configure(cursor="fleur")
 
 def create_card(item):
     card = ctk.CTkFrame(list_frame, fg_color=CARD, corner_radius=8)
@@ -184,23 +229,28 @@ def create_card(item):
         widget.bind("<Enter>", lambda event, c=card: c.configure(fg_color=CARD_HOVER))
         widget.bind("<Leave>", lambda event, c=card: on_card_leave(c))
 
-
 def refresh_cards():
-
     card_items.clear()
-    
     for widget in list_frame.winfo_children():
         widget.destroy()
 
-    if not history.history:
-        ctk.CTkLabel(list_frame, text="Noch nichts kopiert", font=FONT, text_color=MUTED).pack(pady=24)
+    items = history.get_history(
+        sort_by=view["sort_by"],
+        descending=view["descending"],
+        search=view["search"],
+        favorites_only=view["favorites_only"],
+    )
 
-    for item in history.get_history():
+    if not items:
+        filtering = view["search"] or view["favorites_only"]
+        text = "Keine Treffer" if filtering else "Noch nichts kopiert"
+        ctk.CTkLabel(list_frame, text=text, font=FONT, text_color=MUTED).pack(pady=24)
+
+    for item in items:
         create_card(item)
 
-    count = len(history.history)
+    count = len(items)
     count_label.configure(text=f"{count} Eintrag" if count == 1 else f"{count} Einträge")
-
 
 def check_queue():
     changed = False
@@ -212,7 +262,6 @@ def check_queue():
         refresh_cards()
 
     root.after(100, check_queue)
-
 
 
 root = ctk.CTk()
@@ -238,6 +287,25 @@ clear_button.pack(side="right")
 
 count_label = ctk.CTkLabel(header, text="0 Einträge", font=FONT_SMALL, text_color=MUTED)
 count_label.pack(side="right", padx=(0, 10))
+
+toolbar = ctk.CTkFrame(root, fg_color="transparent")
+toolbar.pack(fill="x", padx=16, pady=(0, 8))
+
+search_entry = ctk.CTkEntry(toolbar, placeholder_text="Suchen …", font=FONT_SMALL)
+search_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+search_entry.bind("<KeyRelease>", on_search_change)
+
+favorites_switch = ctk.CTkSwitch(toolbar, text="Nur Favoriten", font=FONT_SMALL,
+                                 command=on_favorites_toggle)
+favorites_switch.pack(side="right")
+
+direction_button = ctk.CTkButton(toolbar, text="↑", width=32, height=28,
+                                 font=FONT_SMALL, command=on_direction_click)
+direction_button.pack(side="right", padx=(0, 12))
+
+sort_menu = ctk.CTkOptionMenu(toolbar, values=list(SORT_OPTIONS), width=160, height=28,
+                              font=FONT_SMALL, command=on_sort_change)
+sort_menu.pack(side="right", padx=(0, 4))
 
 
 

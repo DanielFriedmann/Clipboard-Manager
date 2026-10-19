@@ -1,14 +1,15 @@
 ## Erweiterung:
 
 [] Oberfläche optimieren  
-[x] Anpinnen toggle  
-[x] Löschung eines Eintrags  
-[x] Löschung von allen ungepinnten Einträgen
-[] Verwaltung / Gruppierungen  
+[X] Anpinnen toggle  
+[X] Löschung eines Eintrags  
+[X] Löschung von allen ungepinnten Einträgen
+[X] Verwaltung / Gruppierungen  
 [] Erstellung Datenbankmodell  
 [] Einpflegung in Datenbank  
-[] Sortierung nach eigener Priorisierung per Drag and Drop
-[] Drag and Drop  
-[] Gruppierungen in Farbe 
-[] Tabellarische Anzeige und Sortierungen
-[] Always im Vordergrund    
+[X] Sortierung nach eigener Priorisierung per Drag and Drop
+[] Drag and Drop Sortierung in Gruppen   
+[] Gruppierungen in Farbe  
+[X] Tabellarische Anzeige und Sortierungen  
+[] Always im Vordergrund  
+[] Priorisierung Anzeigen lassen?   

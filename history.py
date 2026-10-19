@@ -54,10 +54,33 @@ class ClipboardHistory:
     def toggle_favorite(self, item):
         item.is_favorite = not item.is_favorite
 
-    def get_history(self, group=None):
-        if group is None:
-            return list(self.history)
-        return [item for item in self.history if item.clipboard_group is group]
+    def get_history(self, group=None, sort_by="priority", descending=False,
+                search="", favorites_only=False):
+        items = list(self.history)
+
+        # 1. Filter, jeder baut auf dem vorherigen auf
+        if group is not None:
+            items = [item for item in items if item.clipboard_group is group]
+        if favorites_only:
+            items = [item for item in items if item.is_favorite]
+        if search:
+            term = search.lower()
+            items = [item for item in items if term in item.content.lower()]
+
+        # 2. Sortierung und Richtung
+        if sort_by == "time":
+            items = sorted(items, key=lambda item: item.created_at, reverse=descending)
+        elif sort_by == "content":
+            items = sorted(items, key=lambda item: item.content.lower(), reverse=descending)
+        elif descending:
+            items.reverse()   # eigene Reihenfolge, umgedreht
+
+        return items
+
+    def clear_items(self, items):
+        for item in items:
+            if not item.is_favorite:
+                self.remove_item(item)
 
     def clear_history(self, group=None):
         if group is None:
