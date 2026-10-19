@@ -11,4 +11,4 @@
 [] Drag and Drop  
 [] Gruppierungen in Farbe 
 [] Tabellarische Anzeige und Sortierungen
-  
+[] Always im Vordergrund    

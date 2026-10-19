@@ -35,32 +35,42 @@ class ClipboardHistory:
         if item in self.history:
             self.history.remove(item) 
 
-    def toggle_pinned(self, item):
-        item.is_pinned = not item.is_pinned
+    def move_item(self, item, target):
+        
+        if item is target:
+            return
+
+       
+        self.history.remove(item)
+
+        
+        if target is None:
+            self.history.append(item)               # ans Ende
+        else:
+            index = self.history.index(target)      # erst NACH dem Entfernen bestimmen
+            self.history.insert(index, item)        # direkt vor target
+
+    def toggle_favorite(self, item):
+        item.is_favorite = not item.is_favorite
 
     def get_history(self, group=None):
         if group is None:
-            pinned_items = [item for item in self.history if item.is_pinned]
-            unpinned_items = [item for item in self.history if not item.is_pinned]
-            return pinned_items + unpinned_items
-        else:
-            pinned_items = [item for item in self.history if item.clipboard_group == group and item.is_pinned]
-            unpinned_items = [item for item in self.history if item.clipboard_group == group and not item.is_pinned]
-            return pinned_items + unpinned_items
+            return list(self.history)
+        return [item for item in self.history if item.clipboard_group is group]
 
     def clear_history(self, group=None):
         if group is None:
         
             self.history = [
             item for item in self.history
-            if item.is_pinned or item.clipboard_group is not self.default_group
+            if item.is_favorite or item.clipboard_group is not self.default_group
             ]
 
         else:
         
             self.history = [
             item for item in self.history
-            if item.clipboard_group is not group or item.is_pinned
+            if item.clipboard_group is not group or item.is_favorite
             ]
 
     # Gruppenverwaltung
@@ -86,10 +96,13 @@ class ClipboardHistory:
             raise ValueError("Die angegebene Gruppe existiert nicht.")
         item.clipboard_group = group
 
+        self.history.remove(item)
+        self.history.insert(0, item)
+
         
     def print_history(self):
         print("--------------------------------")
         print("Clipboard History:")
         for item in self.history:
-            print(f"Format: {item.clipboard_format}, Content: {item.content}, Created At: {item.created_at}, Pinned: {item.is_pinned}")
+            print(f"Format: {item.clipboard_format}, Content: {item.content}, Created At: {item.created_at}, Favorite: {item.is_favorite}")
     

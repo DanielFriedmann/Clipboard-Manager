@@ -18,6 +18,6 @@ class ClipboardItem:
     content: str
     clipboard_group: ClipboardGroup | None = None
     created_at: datetime = field(default_factory = datetime.now)
-    is_pinned: bool = False
+    is_favorite: bool = False
 
 

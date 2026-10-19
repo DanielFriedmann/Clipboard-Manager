@@ -50,7 +50,7 @@ def on_delete_click(item):
     refresh_cards()
 
 def on_pin_click(item):
-    history.toggle_pinned(item)
+    history.toggle_favorite(item)
     refresh_cards()
 
 def on_clear_click():
@@ -87,12 +87,12 @@ def create_card(item):
 
     pin_button = ctk.CTkButton(
         card,
-        text="★" if item.is_pinned else "☆",
+        text="★" if item.is_favorite else "☆",
         width=28,
         height=28,
         fg_color="transparent",
         hover_color=CARD_HOVER,
-        text_color=ACCENT if item.is_pinned else MUTED,
+        text_color=ACCENT if item.is_favorite else MUTED,
         command=lambda i=item: on_pin_click(i),
         )
     pin_button.pack(side="right")
