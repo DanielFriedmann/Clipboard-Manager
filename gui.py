@@ -6,7 +6,7 @@ from clipboard_service import ClipboardService
 from history import ClipboardHistory
 
 
-ctk.set_appearance_mode("system")      # folgt der Windows-Einstellung
+ctk.set_appearance_mode("system")      # folgt der Windows Darstellung
 ctk.set_default_color_theme("blue")
 
 
@@ -46,6 +46,10 @@ def make_preview(text, max_length=PREVIEW_LENGTH):
 def on_card_click(item):
     service.set_text(item.content)
 
+def on_delete_click(item):
+    history.remove_item(item)
+    refresh_cards()
+
 
 def on_card_leave(card):
   
@@ -59,11 +63,29 @@ def create_card(item):
     card = ctk.CTkFrame(list_frame, fg_color=CARD, corner_radius=8)
     card.pack(fill="x", padx=4, pady=4)
 
+    # Delete button
+
+    delete_button = ctk.CTkButton(
+    card,
+    text="✕",
+    width=28,
+    height=28,
+    fg_color="transparent",
+    hover_color=CARD_HOVER,
+    text_color=MUTED,
+    command=lambda i=item: on_delete_click(i),
+    )
+    delete_button.pack(side="right", padx=(0, 8))
+
+    #Entry Preview
+
     preview_label = ctk.CTkLabel(
         card, text=make_preview(item.content), font=FONT,
         text_color=TEXT, anchor="w", justify="left",
     )
     preview_label.pack(fill="x", padx=12, pady=(8, 0))
+
+    # Entry Timestamp
 
     time_label = ctk.CTkLabel(
         card, text=item.created_at.strftime("%H:%M"), font=FONT_SMALL,
@@ -84,7 +106,7 @@ def refresh_cards():
         widget.destroy()
 
     if not history.history:
-        ctk.CTkLabel(list_frame, text="Noch nichts kopiert", font=FONT, text_color=MUTED).pack(pady=24)
+        ctk.CTkLabel(history.history, text="Noch nichts kopiert", font=FONT, text_color=MUTED).pack(pady=24)
 
     for item in history.history:
         create_card(item)

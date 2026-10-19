@@ -23,7 +23,11 @@ class ClipboardHistory:
             clipboard_item = ClipboardItem(clipboard_format=ClipboardFormat.TEXT, content=text)
         
         
-        self.history.insert(0, clipboard_item)              
+        self.history.insert(0, clipboard_item)         
+
+    def remove_item(self, item):
+        if item in self.history:
+            self.history.remove(item)     
 
         
     def print_history(self):
