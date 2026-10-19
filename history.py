@@ -9,33 +9,32 @@ class ClipboardHistory:
         self.groups = [self.default_group]
 
     def add_item(self, text):                    
-        # 1. Gibt es diesen Text schon im Verlauf?
+        
         existing = None
         for item in self.history:
             if item.content == text:
                 existing = item
                 break
         
-        # 2. Alten Eintrag wiederverwenden oder neuen erzeugen
-        if existing is not None:
-            self.history.remove(existing)
-            existing.created_at = datetime.now()  
-            clipboard_item = existing             
+        
+        if existing is not None:            
+            existing.created_at = datetime.now()                          
         else:
             clipboard_item = ClipboardItem(
                 clipboard_format=ClipboardFormat.TEXT,
                 content=text, 
                 clipboard_group=self.default_group,
                 )
+            self.history.insert(0, clipboard_item) 
         
         
-        self.history.insert(0, clipboard_item)         
+                
 
     def remove_item(self, item):
         if item in self.history:
             self.history.remove(item) 
 
-    def move_item(self, item, target):
+    def move_item(self, item, target, after=False):
         
         if item is target:
             return
@@ -48,6 +47,8 @@ class ClipboardHistory:
             self.history.append(item)               # ans Ende
         else:
             index = self.history.index(target)      # erst NACH dem Entfernen bestimmen
+            if after:
+                index += 1
             self.history.insert(index, item)        # direkt vor target
 
     def toggle_favorite(self, item):

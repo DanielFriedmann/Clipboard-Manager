@@ -21,10 +21,13 @@ FONT_TITLE = ("Segoe UI Semibold", 18)
 FONT_SMALL = ("Segoe UI", 11)
 
 PREVIEW_LENGTH = 60
+DRAG_THRESHOLD = 5 
 
 
 history = ClipboardHistory()
 text_queue = queue.Queue()   # threadsichere Übergabe Service → GUI
+card_items = {} 
+drag = {"item": None, "start_y": 0, "active": False, "target": None}
 
 
 def on_new_text(text):
@@ -63,6 +66,64 @@ def on_card_leave(card):
     widget = card.winfo_containing(x, y)
     if widget is None or not str(widget).startswith(str(card)):
         card.configure(fg_color=CARD)
+
+def find_card(widget):
+    
+    while widget is not None:
+        if widget in card_items:
+            return widget
+        widget = widget.master
+    return None
+
+
+def set_drop_target(card):
+    
+    old = drag["target"]
+    if old is card:
+        return
+    if old is not None and old.winfo_exists():
+        old.configure(border_width=0)
+    if card is not None:
+        card.configure(border_width=2, border_color=ACCENT)
+    drag["target"] = card
+
+
+def on_press(event, item):
+    drag["item"] = item
+    drag["start_y"] = event.y_root
+    drag["active"] = False
+
+
+def on_motion(event):
+    if drag["item"] is None:
+        return
+
+    if not drag["active"] and abs(event.y_root - drag["start_y"]) > DRAG_THRESHOLD:
+        drag["active"] = True
+        root.configure(cursor="fleur")   # Verschiebe-Mauszeiger
+
+    if drag["active"]:
+        widget = root.winfo_containing(event.x_root, event.y_root)
+        set_drop_target(find_card(widget))
+
+
+def on_release(event):
+    item = drag["item"]
+    if item is None:
+        return
+
+    if drag["active"]:
+        root.configure(cursor="")
+        card = find_card(root.winfo_containing(event.x_root, event.y_root))
+        if card is not None:
+            target = card_items[card]            
+            middle = card.winfo_rooty() + card.winfo_height() / 2
+            history.move_item(item, target, after=event.y_root > middle)
+        drag.update(item=None, active=False, target=None)
+        refresh_cards()
+    else:
+        drag.update(item=None, active=False, target=None)
+        on_card_click(item)
 
 
 def create_card(item):
@@ -114,13 +175,19 @@ def create_card(item):
     time_label.pack(fill="x", padx=12, pady=(0, 8))
 
     
+    card_items[card] = item
+
     for widget in (card, preview_label, time_label):
-        widget.bind("<Button-1>", lambda event, i=item: on_card_click(i))
+        widget.bind("<ButtonPress-1>", lambda event, i=item: on_press(event, i))
+        widget.bind("<B1-Motion>", on_motion)
+        widget.bind("<ButtonRelease-1>", on_release)
         widget.bind("<Enter>", lambda event, c=card: c.configure(fg_color=CARD_HOVER))
         widget.bind("<Leave>", lambda event, c=card: on_card_leave(c))
 
 
 def refresh_cards():
+
+    card_items.clear()
     
     for widget in list_frame.winfo_children():
         widget.destroy()
