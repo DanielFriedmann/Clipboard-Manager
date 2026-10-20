@@ -1,5 +1,5 @@
 import threading
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 import customtkinter as ctk
 
 from clipboard_service import ClipboardService
@@ -29,6 +29,15 @@ SORT_OPTIONS = {
     "Inhalt": "content",
 }
 SORT_LABELS = {value: label for label, value in SORT_OPTIONS.items()}   # umgekehrte Richtung
+
+# (Spalten-ID, Überschrift, Breite, Sortierung oder None)
+COLUMNS = [
+    ("check", "☐", 40, None),
+    ("position", "Pos.", 50, "priority"),
+    ("content", "Inhalt", 380, "content"),
+    ("time", "Zeitstempel", 140, "time"),
+    ("favorite", "★", 40, None),
+]
 
 
 #  Kachel-Ansicht
@@ -157,7 +166,134 @@ class CardView(ctk.CTkScrollableFrame):
             middle = card.winfo_rooty() + card.winfo_height() / 2
             self.vm.move(item, self.card_items[card], after=event.y_root > middle)
 
+class TableView(ctk.CTkFrame):
+    def __init__(self, master, vm):
+        super().__init__(master, fg_color="transparent")
+        self.vm = vm
+        self.row_items = {}   # Zeilen-ID → Eintrag
 
+        # Leiste über der Tabelle
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.pack(fill="x", pady=(0, 6))
+        self.delete_button = ctk.CTkButton(
+            bar, text="Markierte löschen", width=170, height=28,
+            font=FONT_SMALL, command=self._on_delete_checked,
+        )
+        self.delete_button.pack(side="left")
+
+        # Tabelle
+        ttk.Style().theme_use("clam") 
+        self.tree = ttk.Treeview(
+            self, columns=[column[0] for column in COLUMNS],
+            show="headings", selectmode="browse",
+        )
+        for col_id, title, width, _sort_key in COLUMNS:
+            self.tree.heading(col_id, text=title,
+                              command=lambda c=col_id: self._on_heading_click(c))
+            self.tree.column(col_id, width=width, stretch=(col_id == "content"),
+                             anchor="w" if col_id == "content" else "center")
+
+        scrollbar = ctk.CTkScrollbar(self, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        self.tree.pack(side="left", fill="both", expand=True)
+
+        self.tree.bind("<Button-1>", self._on_click)
+        self.tree.bind("<Double-1>", self._on_double_click)
+
+        vm.subscribe(self.refresh)
+
+    # Zeichnen
+
+    def refresh(self):
+        self._apply_style()
+
+        self.tree.delete(*self.tree.get_children())
+        self.row_items.clear()
+
+        for item in self.vm.get_visible_items():
+            values = (
+                "☑" if self.vm.is_checked(item) else "☐",
+                self.vm.position(item),
+                self.vm.preview(item, 80),
+                self.vm.datetime_text(item),
+                "★" if item.is_favorite else "☆",
+            )
+            row_id = self.tree.insert("", "end", values=values)
+            self.row_items[row_id] = item
+
+        # Überschriften
+        for col_id, title, _width, sort_key in COLUMNS:
+            text = title
+            if col_id == "check":
+                text = "☑" if self.vm.all_visible_checked else "☐"
+            elif sort_key == self.vm.sort_by:
+                text += " ▼" if self.vm.descending else " ▲"
+            self.tree.heading(col_id, text=text)
+
+        count = self.vm.checked_count
+        self.delete_button.configure(
+            text=f"Markierte löschen ({count})",
+            state="normal" if count else "disabled",
+        )
+
+    def _apply_style(self):
+        dark = ctk.get_appearance_mode() == "Dark"
+        bg = "#2b2b2b" if dark else "#ffffff"
+        fg = "#f2f2f2" if dark else "#1a1a1a"
+        head = "#333333" if dark else "#ebebeb"
+        selected = "#33415c" if dark else "#dbe7f6"
+
+        style = ttk.Style()
+        style.configure("Treeview", background=bg, fieldbackground=bg, foreground=fg,
+                        rowheight=28, borderwidth=0, font=("Segoe UI", 10))
+        style.configure("Treeview.Heading", background=head, foreground=fg,
+                        relief="flat", font=("Segoe UI Semibold", 10))
+        style.map("Treeview", background=[("selected", selected)],
+                  foreground=[("selected", fg)])
+
+    # Eingaben 
+
+    def _column_id_at(self, x):        
+        index = int(self.tree.identify_column(x)[1:]) - 1
+        return COLUMNS[index][0]
+
+    def _on_heading_click(self, col_id):
+        if col_id == "check":
+            self.vm.set_all_checked(not self.vm.all_visible_checked)
+            return
+        sort_key = next(column[3] for column in COLUMNS if column[0] == col_id)
+        if sort_key is not None:
+            self.vm.sort_by_column(sort_key)
+
+    def _on_click(self, event):
+        if self.tree.identify_region(event.x, event.y) != "cell":
+            return
+        row_id = self.tree.identify_row(event.y)
+        if not row_id:
+            return
+
+        item = self.row_items[row_id]
+        col_id = self._column_id_at(event.x)
+        if col_id == "check":
+            self.vm.toggle_checked(item)
+            return "break"
+        if col_id == "favorite":
+            self.vm.toggle_favorite(item)
+            return "break"
+
+    def _on_double_click(self, event):
+        if self.tree.identify_region(event.x, event.y) != "cell":
+            return
+        row_id = self.tree.identify_row(event.y)
+        if row_id and self._column_id_at(event.x) not in ("check", "favorite"):
+            self.vm.copy(self.row_items[row_id])
+
+    def _on_delete_checked(self):
+        count = self.vm.checked_count
+        text = "1 Eintrag" if count == 1 else f"{count} Einträge"
+        if messagebox.askyesno("Markierte löschen", f"{text} endgültig löschen?"):
+            self.vm.delete_checked()
 
 #  Verknüpfung: Daten, ViewModel, Service
 
@@ -202,10 +338,21 @@ def on_sort_change(choice):
 def on_favorites_toggle():
     vm.set_favorites_only(favorites_switch.get() == 1)
 
+def on_view_change(choice):
+    if choice == "Tabelle":
+        card_view.pack_forget()
+        table_view.pack(fill="both", expand=True, padx=12, before=hint_label)
+        hint_label.configure(text="Doppelklick zum Kopieren · Spaltenkopf zum Sortieren · ☐ zum Markieren")
+    else:
+        table_view.pack_forget()
+        card_view.pack(fill="both", expand=True, padx=12, before=hint_label)
+        hint_label.configure(text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)")
+
 
 def poll_incoming():
     vm.process_incoming()
     root.after(100, poll_incoming)
+
 
 
 root = ctk.CTk()
@@ -218,6 +365,11 @@ header = ctk.CTkFrame(root, fg_color="transparent")
 header.pack(fill="x", padx=16, pady=(14, 8))
 
 ctk.CTkLabel(header, text="Zwischenablage", font=FONT_TITLE).pack(side="left")
+
+view_switch = ctk.CTkSegmentedButton(header, values=["Kacheln", "Tabelle"],
+                                     font=FONT_SMALL, command=on_view_change)
+view_switch.set("Kacheln")
+view_switch.pack(side="left", padx=(16, 0))
 
 clear_button = ctk.CTkButton(header, text="Alle löschen", width=130, height=28,
                              font=FONT_SMALL, command=on_clear_click)
@@ -250,6 +402,14 @@ sort_menu.pack(side="right", padx=(0, 4))
 card_view = CardView(root, vm)
 card_view.pack(fill="both", expand=True, padx=12)
 
+table_view = TableView(root, vm)   # wird erst beim Umschalten angezeigt
+
+hint_label = ctk.CTkLabel(
+    root, text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)",
+    font=FONT_SMALL, text_color=MUTED,
+    )   
+hint_label.pack(fill="x", padx=16, pady=(8, 12))
+
 ctk.CTkLabel(
     root, text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)",
     font=FONT_SMALL, text_color=MUTED,
@@ -258,6 +418,7 @@ ctk.CTkLabel(
 # Start
 vm.subscribe(refresh_header)
 card_view.refresh()
+table_view.refresh()
 refresh_header()
 
 threading.Thread(target=service.start, daemon=True).start()
