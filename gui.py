@@ -1,5 +1,6 @@
 import threading
-from tkinter import messagebox, ttk
+import tkinter as tk
+from tkinter import messagebox, ttk, colorchooser
 import customtkinter as ctk
 
 from clipboard_service import ClipboardService
@@ -16,6 +17,10 @@ CARD_HOVER = ("#e8f0fb", "#3a3a3a")
 TEXT = ("#1a1a1a", "#f2f2f2")
 MUTED = ("#6b6b6b", "#a0a0a0")
 ACCENT = ("#0067c0", "#4ca0e0")
+SIDEBAR = ("#ebebeb", "#212121")
+SELECTED = ("#dbe7f6", "#33415c")
+DIVIDER = ("#d0d0d0", "#3a3a3a")
+DEFAULT_GROUP_COLOR = "#9e9e9e"
 
 FONT = ("Segoe UI", 13)
 FONT_TITLE = ("Segoe UI Semibold", 18)
@@ -27,6 +32,7 @@ SORT_OPTIONS = {
     "Eigene Reihenfolge": "priority",
     "Zeitstempel": "time",
     "Inhalt": "content",
+    "Favorit": "favorite"
 }
 SORT_LABELS = {value: label for label, value in SORT_OPTIONS.items()}   # umgekehrte Richtung
 
@@ -36,14 +42,12 @@ COLUMNS = [
     ("position", "Pos.", 50, "priority"),
     ("content", "Inhalt", 380, "content"),
     ("time", "Zeitstempel", 140, "time"),
-    ("favorite", "★", 40, None),
+    ("favorite", "★", 40, "favorite"),
 ]
 
 
-#  Kachel-Ansicht
 
-
-class CardView(ctk.CTkScrollableFrame):
+class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
     def __init__(self, master, vm):
         super().__init__(master, fg_color="transparent")
         self.vm = vm
@@ -166,7 +170,7 @@ class CardView(ctk.CTkScrollableFrame):
             middle = card.winfo_rooty() + card.winfo_height() / 2
             self.vm.move(item, self.card_items[card], after=event.y_root > middle)
 
-class TableView(ctk.CTkFrame):
+class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
     def __init__(self, master, vm):
         super().__init__(master, fg_color="transparent")
         self.vm = vm
@@ -330,6 +334,100 @@ class TableView(ctk.CTkFrame):
         if row_id and self._column_id_at(event.x) not in ("check", "favorite"):
             self.vm.copy(self.row_items[row_id])   
 
+class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
+    def __init__(self, master, vm):
+        super().__init__(master, width=210, corner_radius=0, fg_color=SIDEBAR)
+        self.pack_propagate(False)   # feste Breite, schrumpft nicht auf den Inhalt
+        self.vm = vm
+
+        ctk.CTkLabel(self, text="Gruppen", font=FONT_TITLE, text_color=TEXT).pack(
+            anchor="w", padx=16, pady=(14, 8))
+
+        self.list = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.list.pack(fill="both", expand=True, padx=6, pady=(0, 8))
+
+        vm.subscribe(self.refresh)
+
+    # Zeichnen
+
+    def refresh(self):
+        for widget in self.list.winfo_children():
+            widget.destroy()
+
+        self._create_row(None, "Alle Einträge", None)
+        default = self.vm.default_group
+        self._create_row(default, default.name, default.color)
+        self._create_add_row()
+
+        ctk.CTkFrame(self.list, height=1, fg_color=DIVIDER).pack(fill="x", padx=8, pady=8)
+
+        for group in self.vm.custom_groups:
+            self._create_row(group, group.name, group.color)
+
+    def _create_row(self, group, name, color):
+        is_selected = group is self.vm.selected_group
+
+        row = ctk.CTkFrame(self.list, corner_radius=6,
+                           fg_color=SELECTED if is_selected else "transparent")
+        row.pack(fill="x", pady=1)
+
+        dot = ctk.CTkFrame(row, width=10, height=10, corner_radius=5,
+                           fg_color=color if color else "transparent")
+        dot.pack(side="left", padx=(10, 8), pady=10)
+
+        name_label = ctk.CTkLabel(row, text=name, font=FONT, text_color=TEXT, anchor="w")
+        name_label.pack(side="left", fill="x", expand=True)
+
+        count_label = ctk.CTkLabel(row, text=str(self.vm.group_count(group)),
+                                   font=FONT_SMALL, text_color=MUTED)
+        count_label.pack(side="right", padx=(0, 10))
+
+        is_custom = group is not None and group is not self.vm.default_group
+
+        for widget in (row, dot, name_label, count_label):
+            widget.bind("<Button-1>", lambda event, g=group: self.vm.select_group(g))
+            if is_custom:
+                widget.bind("<Button-3>", lambda event, g=group: self._on_group_menu(event, g))
+
+    def _create_add_row(self):
+        ctk.CTkButton(
+            self.list, text="＋  Neue Gruppe", anchor="w", height=32, font=FONT,
+            fg_color="transparent", hover_color=SELECTED, text_color=MUTED,
+            command=self._on_add_group,
+        ).pack(fill="x", pady=(4, 0))
+
+    # Gruppen anlegen und löschen
+
+    def _on_add_group(self):
+        name = ctk.CTkInputDialog(title="Neue Gruppe", text="Name der neuen Gruppe:").get_input()
+        if name is None:
+            return   # abgebrochen
+
+        color = colorchooser.askcolor(title="Farbe der Gruppe wählen")[1] or DEFAULT_GROUP_COLOR
+
+        try:
+            group = self.vm.add_group(name, color)
+        except ValueError as error:
+            messagebox.showwarning("Neue Gruppe", str(error))
+            return
+
+        self.vm.select_group(group)   # neue Gruppe direkt öffnen
+
+    def _on_group_menu(self, event, group):
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label=f"„{group.name}“ löschen",
+                         command=lambda: self._delete_group(group))
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _delete_group(self, group):
+        if messagebox.askyesno(
+            "Gruppe löschen",
+            f"Gruppe „{group.name}“ löschen?\nIhre Einträge wandern nach „{self.vm.default_group.name}“.",
+        ):
+            self.vm.remove_group(group)
+
+
+
 #  Verknüpfung: Daten, ViewModel, Service
 
 
@@ -347,6 +445,7 @@ def refresh_header():
     clear_button.configure(text=vm.clear_button_text)
     direction_button.configure(text="↓" if vm.descending else "↑")
     sort_menu.set(SORT_LABELS[vm.sort_by])
+    title_lable.configure(text=vm.title_text)
 
     count = vm.checked_count
     delete_checked_button.configure(text=f"Markierte löschen ({count})",
@@ -415,14 +514,22 @@ def poll_incoming():
 
 root = ctk.CTk()
 root.title("Zwischenablagen Manager")
-root.geometry("820x520")
 root.minsize(560, 420)
 
+root.geometry("1000x560")
+
+sidebar = GroupSidebar(root, vm)
+sidebar.pack(side="left", fill="y")
+
+main_area = ctk.CTkFrame(root, fg_color="transparent")
+main_area.pack(side="left", fill="both", expand=True)
+
 # Kopfzeile
-header = ctk.CTkFrame(root, fg_color="transparent")
+header = ctk.CTkFrame(main_area, fg_color="transparent")
 header.pack(fill="x", padx=16, pady=(14, 8))
 
-ctk.CTkLabel(header, text="Zwischenablage", font=FONT_TITLE).pack(side="left")
+title_lable = ctk.CTkLabel(header, text="", font=FONT_TITLE)
+title_lable.pack(side="left")
 
 view_switch = ctk.CTkSegmentedButton(header, values=["Kacheln", "Tabelle"],
                                      font=FONT_SMALL, command=on_view_change)
@@ -437,7 +544,7 @@ count_label = ctk.CTkLabel(header, text="", font=FONT_SMALL, text_color=MUTED)
 count_label.pack(side="right", padx=(0, 10))
 
 # Werkzeugleiste
-toolbar = ctk.CTkFrame(root, fg_color="transparent")
+toolbar = ctk.CTkFrame(main_area, fg_color="transparent")
 toolbar.pack(fill="x", padx=16, pady=(0, 8))
 
 search_entry = ctk.CTkEntry(toolbar, placeholder_text="Suchen …", font=FONT_SMALL)
@@ -468,13 +575,13 @@ delete_checked_button = ctk.CTkButton(table_controls, text="Markierte löschen",
 delete_checked_button.pack()
 
 # Ansicht
-card_view = CardView(root, vm)
+card_view = CardView(main_area, vm)
 card_view.pack(fill="both", expand=True, padx=12)
 
-table_view = TableView(root, vm)   # wird erst beim Umschalten angezeigt
+table_view = TableView(main_area, vm)   # wird erst beim Umschalten angezeigt
 
 hint_label = ctk.CTkLabel(
-    root, text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)",
+    main_area, text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)",
     font=FONT_SMALL, text_color=MUTED,
     )   
 hint_label.pack(fill="x", padx=16, pady=(8, 12))
@@ -485,6 +592,7 @@ vm.subscribe(refresh_header)
 card_view.refresh()
 table_view.refresh()
 refresh_header()
+sidebar.refresh()
 
 threading.Thread(target=service.start, daemon=True).start()
 root.after(100, poll_incoming)

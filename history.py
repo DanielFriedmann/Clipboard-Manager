@@ -5,7 +5,7 @@ from datetime import datetime
 class ClipboardHistory:
     def __init__(self):
         self.history = []
-        self.default_group = ClipboardGroup(name="Allgemein")
+        self.default_group = ClipboardGroup(name="Unsortiert")
         self.groups = [self.default_group]
 
     def add_item(self, text):                    
@@ -74,6 +74,8 @@ class ClipboardHistory:
             items = sorted(items, key=lambda item: item.content.lower(), reverse=descending)
         elif descending:
             items.reverse()   # eigene Reihenfolge, umgedreht
+        elif sort_by == "favorite":
+            items = sorted(items, key=lambda item: item.is_favorite, reverse=not descending)
 
         return items
 

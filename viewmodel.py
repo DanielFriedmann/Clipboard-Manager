@@ -7,7 +7,8 @@ class ClipboardViewModel:
     def __init__(self, history):
         self.history = history
         self.service = None   
-        self.checked = set()          # markierte Einträge
+        self.checked = set()            # markierte Einträge
+        self.selected_group = None          
 
         # Zustand der Ansicht
         self.sort_by = "priority"
@@ -46,6 +47,7 @@ class ClipboardViewModel:
 
     def get_visible_items(self):
         return self.history.get_history(
+            group=self.selected_group,
             sort_by=self.sort_by,
             descending=self.descending,
             search=self.search,
@@ -82,7 +84,7 @@ class ClipboardViewModel:
 
     @property
     def is_filtering(self):
-        return bool(self.search) or self.favorites_only
+        return bool(self.search) or self.favorites_only or self.selected_group is not None
 
     @property
     def can_drag(self):
@@ -95,7 +97,11 @@ class ClipboardViewModel:
 
     @property
     def empty_text(self):
-        return "Keine Treffer" if self.is_filtering else "Noch nichts kopiert"
+        if self.search or self.favorites_only:
+            return "Keine Treffer"
+        if self.selected_group is not None:
+            return "Keine Einträge in dieser Gruppe"
+        return "Noch nichts kopiert"
 
     @property
     def clear_button_text(self):
@@ -114,6 +120,22 @@ class ClipboardViewModel:
     @staticmethod
     def time_text(item):
         return item.created_at.strftime("%H:%M")
+
+    @property
+    def default_group(self):
+        return self.history.default_group
+
+    @property
+    def custom_groups(self):
+        return [group for group in self.history.groups if group is not self.history.default_group]
+
+    def group_count(self, group):
+        # None zählt alle Einträge
+        return len(self.history.get_history(group=group))
+
+    @property
+    def title_text(self):
+        return self.selected_group.name if self.selected_group else "Alle Einträge"
 
     # Ansicht
 
@@ -187,4 +209,26 @@ class ClipboardViewModel:
         for item in self.checked_visible():
             self.history.remove_item(item)
         self._prune_checked()
+        self._notify()
+
+    def select_group(self, group):
+        self.selected_group = group
+        self._notify()
+
+    def add_group(self, name, color):
+        name = name.strip()
+        if not name:
+            raise ValueError("Bitte einen Namen eingeben.")
+        group = self.history.add_group(name, color)
+        self._notify()
+        return group
+
+    def remove_group(self, group):
+        self.history.remove_group(group)
+        if self.selected_group is group:
+            self.selected_group = None   # gelöschte Gruppe kann nicht ausgewählt bleiben
+        self._notify()
+
+    def assign_to_group(self, item, group):
+        self.history.assign_item_to_group(item, group)
         self._notify()

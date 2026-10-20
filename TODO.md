@@ -6,15 +6,21 @@
 [X] Löschung von allen ungepinnten Einträgen
 [X] Verwaltung / Gruppierungen  
 [] Erstellung Datenbankmodell  
-[] Einpflegung in Datenbank  
-[X] Sortierung nach eigener Priorisierung per Drag and Drop
-[] Drag and Drop Sortierung in Gruppen   
-[] Gruppierungen in Farbe  
+[] Einpflegung in Datenbank   
+[X] Sortierung nach eigener Priorisierung per Drag and Drop  
+[] Drag and Drop Sortierung in Gruppen    
+[] Gruppierungen in Farbe   
 [X] Tabellarische Anzeige und Sortierungen  
-[] Always im Vordergrund  
-[] Priorisierung Anzeigen lassen?   
-[] Lesezeichern umziehen
-[]  tabellenansicht
-[] xml
-[] Stichwort / Schlagwortsuche
-[] Branching
+[] Always im Vordergrund   
+[] Priorisierung Anzeigen lassen?    
+[] Lesezeichern umziehen  
+[] tabellenansicht  
+[] xml   
+[] Stichwort / Schlagwortsuche   
+[] Branching  
+[] RTF Strukture  
+[] Vorschau  
+[] Umbenennung Spalte  
+[] zu lange Gruppen Namen
+[] Hover in der Tabelle
+[] Ziehen mehrerer Einträge
