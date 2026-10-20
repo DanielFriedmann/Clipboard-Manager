@@ -13,3 +13,7 @@
 [X] Tabellarische Anzeige und Sortierungen  
 [] Always im Vordergrund  
 [] Priorisierung Anzeigen lassen?   
+[] Lesezeichern umziehen
+[]  tabellenansicht
+[] xml
+[] hashen
