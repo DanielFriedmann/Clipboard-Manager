@@ -16,4 +16,5 @@
 [] Lesezeichern umziehen
 []  tabellenansicht
 [] xml
-[] hashen
+[] Stichwort / Schlagwortsuche
+[] Branching
