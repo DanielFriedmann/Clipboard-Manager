@@ -7,6 +7,7 @@ class ClipboardViewModel:
     def __init__(self, history):
         self.history = history
         self.service = None   
+        self.checked = set()          # markierte Einträge
 
         # Zustand der Ansicht
         self.sort_by = "priority"
@@ -50,6 +51,34 @@ class ClipboardViewModel:
             search=self.search,
             favorites_only=self.favorites_only,
         )
+
+    def is_checked(self, item):
+        return item in self.checked
+
+    def checked_visible(self):
+        # nur Markierungen, die gerade auch angezeigt werden
+        return [item for item in self.get_visible_items() if item in self.checked]
+
+    @property
+    def checked_count(self):
+        return len(self.checked_visible())
+
+    @property
+    def all_visible_checked(self):
+        visible = self.get_visible_items()
+        return bool(visible) and all(item in self.checked for item in visible)
+
+    def position(self, item):
+        # Platz in der eigenen Reihenfolge, ab 1 gezählt
+        return self.history.history.index(item) + 1
+
+    @staticmethod
+    def datetime_text(item):
+        return item.created_at.strftime("%d.%m.%Y %H:%M")
+
+    def _prune_checked(self):
+        # Markierungen gelöschter Einträge entfernen
+        self.checked &= set(self.history.history)
 
     @property
     def is_filtering(self):
@@ -121,6 +150,7 @@ class ClipboardViewModel:
 
     def delete(self, item):
         self.history.remove_item(item)
+        self._prune_checked()
         self._notify()
 
     def toggle_favorite(self, item):
@@ -135,4 +165,26 @@ class ClipboardViewModel:
 
     def delete_visible(self):
         self.history.clear_items(self.get_visible_items())
+        self._prune_checked()
+        self._notify()
+
+    def toggle_checked(self, item):
+        if item in self.checked:
+            self.checked.remove(item)
+        else:
+            self.checked.add(item)
+        self._notify()
+
+    def set_all_checked(self, value):
+        visible = set(self.get_visible_items())
+        if value:
+            self.checked |= visible   # alle sichtbaren hinzufügen
+        else:
+            self.checked -= visible   # alle sichtbaren entfernen
+        self._notify()
+
+    def delete_checked(self):
+        for item in self.checked_visible():
+            self.history.remove_item(item)
+        self._prune_checked()
         self._notify()
