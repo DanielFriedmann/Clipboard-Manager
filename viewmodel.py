@@ -232,3 +232,7 @@ class ClipboardViewModel:
     def assign_to_group(self, item, group):
         self.history.assign_item_to_group(item, group)
         self._notify()
+
+    def move_group(self, group, target, after=False):
+        self.history.move_group(group, target, after=after)
+        self._notify()

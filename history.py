@@ -125,6 +125,20 @@ class ClipboardHistory:
         self.history.remove(item)
         self.history.insert(0, item)
 
+    def move_group(self, group, target, after=False):
+        if group is target or group is self.default_group or target is self.default_group:
+            return
+
+        self.groups.remove(group)
+
+        if target is None:
+            self.groups.append(group)
+        else:
+            index = self.groups.index(target)
+            if after:
+                index += 1
+            self.groups.insert(index, group)
+
         
     def print_history(self):
         print("--------------------------------")

@@ -21,6 +21,7 @@ SIDEBAR = ("#ebebeb", "#212121")
 SELECTED = ("#dbe7f6", "#33415c")
 DIVIDER = ("#d0d0d0", "#3a3a3a")
 DEFAULT_GROUP_COLOR = "#9e9e9e"
+SIDEBAR_HOVER = ("#dedede", "#2c2c2c")
 
 FONT = ("Segoe UI", 13)
 FONT_TITLE = ("Segoe UI Semibold", 18)
@@ -44,6 +45,13 @@ COLUMNS = [
     ("time", "Zeitstempel", 140, "time"),
     ("favorite", "★", 40, "favorite"),
 ]
+
+def place_near(dialog, parent, width=320, height=180):
+    # Dialog mit fester Größe über dem Elternfenster platzieren
+    parent.update_idletasks()
+    x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
+    y = parent.winfo_rooty() + (parent.winfo_height() - height) // 3
+    dialog.geometry(f"{width}x{height}+{x}+{y}")
 
 
 
@@ -337,8 +345,11 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
 class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
     def __init__(self, master, vm):
         super().__init__(master, width=210, corner_radius=0, fg_color=SIDEBAR)
-        self.pack_propagate(False)   # feste Breite, schrumpft nicht auf den Inhalt
+        self.pack_propagate(False)
         self.vm = vm
+        self.row_groups = {}   # Zeile → Gruppe (None = "Alle Einträge")
+        self.highlighted_row = None
+        self.drag = {"group": None, "start_y": 0, "active": False}
 
         ctk.CTkLabel(self, text="Gruppen", font=FONT_TITLE, text_color=TEXT).pack(
             anchor="w", padx=16, pady=(14, 8))
@@ -351,6 +362,8 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
     # Zeichnen
 
     def refresh(self):
+        self.row_groups.clear()
+        self.highlighted_row = None
         for widget in self.list.winfo_children():
             widget.destroy()
 
@@ -359,16 +372,17 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         self._create_row(default, default.name, default.color)
         self._create_add_row()
 
-        ctk.CTkFrame(self.list, height=1, fg_color=DIVIDER).pack(fill="x", padx=8, pady=8)
+        ctk.CTkFrame(self.list, height=2, corner_radius=0, fg_color=DIVIDER).pack(
+            fill="x", padx=8, pady=8)
 
         for group in self.vm.custom_groups:
             self._create_row(group, group.name, group.color)
 
     def _create_row(self, group, name, color):
         is_selected = group is self.vm.selected_group
+        normal_color = SELECTED if is_selected else "transparent"
 
-        row = ctk.CTkFrame(self.list, corner_radius=6,
-                           fg_color=SELECTED if is_selected else "transparent")
+        row = ctk.CTkFrame(self.list, corner_radius=6, border_width=0, fg_color=normal_color)
         row.pack(fill="x", pady=1)
 
         dot = ctk.CTkFrame(row, width=10, height=10, corner_radius=5,
@@ -382,36 +396,122 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
                                    font=FONT_SMALL, text_color=MUTED)
         count_label.pack(side="right", padx=(0, 10))
 
-        is_custom = group is not None and group is not self.vm.default_group
+        self.row_groups[row] = group
 
         for widget in (row, dot, name_label, count_label):
-            widget.bind("<Button-1>", lambda event, g=group: self.vm.select_group(g))
-            if is_custom:
+            widget.bind("<ButtonPress-1>", lambda event, g=group: self._on_press(event, g))
+            widget.bind("<B1-Motion>", self._on_motion)
+            widget.bind("<ButtonRelease-1>", self._on_release)
+            widget.bind("<Enter>", lambda _event, r=row, s=is_selected: self._on_row_enter(r, s))
+            widget.bind("<Leave>", lambda _event, r=row, c=normal_color: self._on_row_leave(r, c))
+            if self._is_custom(group):
                 widget.bind("<Button-3>", lambda event, g=group: self._on_group_menu(event, g))
 
     def _create_add_row(self):
         ctk.CTkButton(
             self.list, text="＋  Neue Gruppe", anchor="w", height=32, font=FONT,
-            fg_color="transparent", hover_color=SELECTED, text_color=MUTED,
+            fg_color="transparent", hover_color=SIDEBAR_HOVER, text_color=MUTED,
             command=self._on_add_group,
         ).pack(fill="x", pady=(4, 0))
+
+    # Hover
+
+    def _on_row_enter(self, row, is_selected):
+        if not is_selected:
+            row.configure(fg_color=SIDEBAR_HOVER)
+
+    def _on_row_leave(self, row, normal_color):
+        x, y = row.winfo_pointerxy()
+        widget = row.winfo_containing(x, y)
+        if widget is None or not str(widget).startswith(str(row)):
+            row.configure(fg_color=normal_color)
+
+    # Für Drag & Drop, auch von den anderen Ansichten benutzt
+
+    def find_row(self, x_root, y_root):
+        widget = self.winfo_containing(x_root, y_root)
+        while widget is not None:
+            if widget in self.row_groups:
+                return widget
+            widget = widget.master
+        return None
+
+    def group_of(self, row):
+        return self.row_groups[row]
+
+    def set_highlight(self, row):
+        old = self.highlighted_row
+        if old is row:
+            return
+        if old is not None and old.winfo_exists():
+            old.configure(border_width=0)
+        if row is not None:
+            row.configure(border_width=2, border_color=ACCENT)
+        self.highlighted_row = row
+
+    def _is_custom(self, group):
+        return group is not None and group is not self.vm.default_group
+
+    # Eigene Gruppen verschieben
+
+    def _on_press(self, event, group):
+        self.drag.update(group=group, start_y=event.y_root, active=False)
+
+    def _on_motion(self, event):
+        group = self.drag["group"]
+        if not self._is_custom(group):
+            return   # "Alle Einträge" und "Unsortiert" lassen sich nicht ziehen
+
+        if not self.drag["active"] and abs(event.y_root - self.drag["start_y"]) > DRAG_THRESHOLD:
+            self.drag["active"] = True
+            self.winfo_toplevel().configure(cursor="fleur")
+
+        if self.drag["active"]:
+            row = self.find_row(event.x_root, event.y_root)
+            if row is not None and not self._is_custom(self.row_groups[row]):
+                row = None   # nur eigene Gruppen sind Ziele
+            self.set_highlight(row)
+
+    def _on_release(self, event):
+        group = self.drag["group"]
+        was_dragging = self.drag["active"]
+        self.drag.update(group=None, active=False)
+
+        if not was_dragging:
+            self.vm.select_group(group)   # kein Ziehen → Klick
+            return
+
+        self.winfo_toplevel().configure(cursor="")
+        row = self.find_row(event.x_root, event.y_root)
+        self.set_highlight(None)
+
+        if row is None or not self._is_custom(self.row_groups[row]):
+            return
+
+        middle = row.winfo_rooty() + row.winfo_height() / 2
+        self.vm.move_group(group, self.row_groups[row], after=event.y_root > middle)
 
     # Gruppen anlegen und löschen
 
     def _on_add_group(self):
-        name = ctk.CTkInputDialog(title="Neue Gruppe", text="Name der neuen Gruppe:").get_input()
-        if name is None:
-            return   # abgebrochen
+        window = self.winfo_toplevel()
 
-        color = colorchooser.askcolor(title="Farbe der Gruppe wählen")[1] or DEFAULT_GROUP_COLOR
+        dialog = ctk.CTkInputDialog(title="Neue Gruppe", text="Name der neuen Gruppe:")
+        place_near(dialog, window)
+        name = dialog.get_input()
+        if name is None:
+            return
+
+        color = colorchooser.askcolor(title="Farbe der Gruppe wählen",
+                                      parent=window)[1] or DEFAULT_GROUP_COLOR
 
         try:
             group = self.vm.add_group(name, color)
         except ValueError as error:
-            messagebox.showwarning("Neue Gruppe", str(error))
+            messagebox.showwarning("Neue Gruppe", str(error), parent=window)
             return
 
-        self.vm.select_group(group)   # neue Gruppe direkt öffnen
+        self.vm.select_group(group)
 
     def _on_group_menu(self, event, group):
         menu = tk.Menu(self, tearoff=0)
@@ -423,10 +523,9 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         if messagebox.askyesno(
             "Gruppe löschen",
             f"Gruppe „{group.name}“ löschen?\nIhre Einträge wandern nach „{self.vm.default_group.name}“.",
+            parent=self.winfo_toplevel(),
         ):
             self.vm.remove_group(group)
-
-
 
 #  Verknüpfung: Daten, ViewModel, Service
 
@@ -455,11 +554,11 @@ def refresh_header():
 def on_clear_click():
     count = vm.deletable_count()
     if count == 0:
-        messagebox.showinfo("Löschen", "Keine Einträge zum Löschen. Favoriten werden nicht gelöscht.")
+        messagebox.showinfo("Löschen", "Keine Einträge zum Löschen. Favoriten werden nicht gelöscht.", parent=root)
         return
 
     text = "1 Eintrag" if count == 1 else f"{count} Einträge"
-    if not messagebox.askyesno("Löschen", f"{text} löschen?\nFavoriten bleiben erhalten."):
+    if not messagebox.askyesno("Löschen", f"{text} löschen?\nFavoriten bleiben erhalten.", parent=root):
         return
 
     vm.delete_visible()
@@ -479,7 +578,7 @@ def on_favorites_toggle():
 def on_delete_checked():
         count = vm.checked_count
         text = "1 Eintrag" if count == 1 else f"{count} Einträge"
-        if messagebox.askyesno("Markierte löschen", f"{text} endgültig löschen?"):
+        if messagebox.askyesno("Markierte löschen", f"{text} endgültig löschen?", parent=root):
             vm.delete_checked()
 
 def on_view_change(choice):
