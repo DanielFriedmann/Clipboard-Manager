@@ -28,3 +28,5 @@
 [] Einklappen von Gruppenleiste  
 [] Einstellungen und Speicherung  
 [] Tastenkürzel  
+[] Horizontale Scrollbar
+[] Ein Ausblendbare Spalten Tabellenansicht

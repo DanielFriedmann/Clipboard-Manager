@@ -229,8 +229,11 @@ class ClipboardViewModel:
             self.selected_group = None   # gelöschte Gruppe kann nicht ausgewählt bleiben
         self._notify()
 
-    def assign_to_group(self, item, group):
-        self.history.assign_item_to_group(item, group)
+    def assign_items_to_group(self, items, group):
+        # rückwärts, damit die Reihenfolge der Einträge erhalten bleibt
+        for item in reversed(items):
+            self.history.assign_item_to_group(item, group)
+        self.checked -= set(items)
         self._notify()
 
     def move_group(self, group, target, after=False):

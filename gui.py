@@ -56,9 +56,10 @@ def place_near(dialog, parent, width=320, height=180):
 
 
 class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
-    def __init__(self, master, vm):
+    def __init__(self, master, vm, sidebar):
         super().__init__(master, fg_color="transparent")
         self.vm = vm
+        self.sidebar = sidebar
         self.card_items = {}   # Kachel → Eintrag
         self.drag = {"item": None, "start_y": 0, "active": False, "target": None}
         vm.subscribe(self.refresh)   # bei jeder Änderung neu zeichnen
@@ -142,6 +143,12 @@ class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
             card.configure(border_width=2, border_color=ACCENT)
         self.drag["target"] = card
 
+    def _sidebar_target(self, event):
+        row = self.sidebar.find_row(event.x_root, event.y_root)
+        if row is not None and self.sidebar.group_of(row) is None:
+            return None   # "Alle Einträge" ist keine Gruppe
+        return row
+
     def _on_press(self, event, item):
         self.drag.update(item=item, start_y=event.y_root, active=False)
 
@@ -152,11 +159,18 @@ class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
         window = self.winfo_toplevel()
         if not self.drag["active"] and abs(event.y_root - self.drag["start_y"]) > DRAG_THRESHOLD:
             self.drag["active"] = True
-            if self.vm.can_drag:
-                window.configure(cursor="fleur")
+            window.configure(cursor="fleur")
 
-        if self.drag["active"] and self.vm.can_drag:
+        if not self.drag["active"]:
+            return
+
+        sidebar_row = self._sidebar_target(event)
+        self.sidebar.set_highlight(sidebar_row)
+
+        if sidebar_row is None and self.vm.can_drag:
             self._set_drop_target(self._find_card(window.winfo_containing(event.x_root, event.y_root)))
+        else:
+            self._set_drop_target(None)
 
     def _on_release(self, event):
         item = self.drag["item"]
@@ -170,18 +184,23 @@ class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
 
         window = self.winfo_toplevel()
         window.configure(cursor="")
+        sidebar_row = self._sidebar_target(event)
         card = self._find_card(window.winfo_containing(event.x_root, event.y_root))
+        self.sidebar.set_highlight(None)
         self._set_drop_target(None)
         self.drag.update(item=None, active=False, target=None)
 
-        if card is not None:
+        if sidebar_row is not None:
+            self.vm.assign_items_to_group([item], self.sidebar.group_of(sidebar_row))
+        elif card is not None:
             middle = card.winfo_rooty() + card.winfo_height() / 2
             self.vm.move(item, self.card_items[card], after=event.y_root > middle)
 
 class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
-    def __init__(self, master, vm):
+    def __init__(self, master, vm, sidebar):
         super().__init__(master, fg_color="transparent")
         self.vm = vm
+        self.sidebar = sidebar
         self.row_items = {}   # Zeilen-ID → Eintrag
         self.drag = {"item": None, "start_y": 0, "active": False, "target_row": None}
 
@@ -272,6 +291,18 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
     def _reset_drag(self):
         self.drag.update(item=None, active=False, target_row=None)
 
+    def _sidebar_target(self, event):
+        row = self.sidebar.find_row(event.x_root, event.y_root)
+        if row is not None and self.sidebar.group_of(row) is None:
+            return None
+        return row
+
+    def _drag_items(self):
+        item = self.drag["item"]
+        if self.vm.is_checked(item):
+            return self.vm.checked_visible()   # markierte Zeile → alle markierten
+        return [item]                          # sonst nur diese eine
+
     # Eingaben 
     def _on_heading_click(self, col_id):
         if col_id == "check":
@@ -307,13 +338,20 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
 
         if not self.drag["active"] and abs(event.y - self.drag["start_y"]) > DRAG_THRESHOLD:
             self.drag["active"] = True
-            if self.vm.can_drag:
-                self.tree.configure(cursor="fleur")
+            self.tree.configure(cursor="fleur")
 
-        if self.drag["active"]:
-            if self.vm.can_drag:
-                self._set_drop_row(self.tree.identify_row(event.y) or None)
-            return "break"   # verhindert, dass die Auswahl beim Ziehen mitwandert
+        if not self.drag["active"]:
+            return
+
+        sidebar_row = self._sidebar_target(event)
+        self.sidebar.set_highlight(sidebar_row)
+
+        is_single = len(self._drag_items()) == 1
+        if sidebar_row is None and is_single and self.vm.can_drag:
+            self._set_drop_row(self.tree.identify_row(event.y) or None)
+        else:
+            self._set_drop_row(None)
+        return "break"
 
     def _on_release(self, event):
         item = self.drag["item"]
@@ -321,19 +359,31 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
             return
 
         was_dragging = self.drag["active"]
+        items = self._drag_items()   # VOR dem Zurücksetzen bestimmen
         self.tree.configure(cursor="")
+        sidebar_row = self._sidebar_target(event)
+        self.sidebar.set_highlight(None)
         self._set_drop_row(None)
         self._reset_drag()
 
-        if not was_dragging or not self.vm.can_drag:
-            return   # einfacher Klick: Kopieren läuft über den Doppelklick
+        if not was_dragging:
+            return
+
+        # in eine Gruppe: einer oder mehrere
+        if sidebar_row is not None:
+            self.vm.assign_items_to_group(items, self.sidebar.group_of(sidebar_row))
+            return
+
+        # innerhalb der Liste: nur einzeln und nur in eigener Reihenfolge
+        if len(items) > 1 or not self.vm.can_drag:
+            return
 
         row_id = self.tree.identify_row(event.y)
         if row_id:
             _x, y, _width, height = self.tree.bbox(row_id)
             self.vm.move(item, self.row_items[row_id], after=event.y > y + height / 2)
         elif self.tree.identify_region(event.x, event.y) == "nothing":
-            self.vm.move(item, None)   # unter der letzten Zeile → ans Ende
+            self.vm.move(item, None)
 
     def _on_double_click(self, event):
         if self.tree.identify_region(event.x, event.y) != "cell":
@@ -686,10 +736,10 @@ delete_checked_button = ctk.CTkButton(table_controls, text="Markierte löschen",
 delete_checked_button.pack()
 
 # Ansicht
-card_view = CardView(main_area, vm)
+card_view = CardView(main_area, vm, sidebar)
 card_view.pack(fill="both", expand=True, padx=12)
 
-table_view = TableView(main_area, vm)   # wird erst beim Umschalten angezeigt
+table_view = TableView(main_area, vm, sidebar)   # wird erst beim Umschalten angezeigt
 
 hint_label = ctk.CTkLabel(
     main_area, text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)",
