@@ -505,6 +505,12 @@ def on_view_change(choice):
         card_view.pack(fill="both", expand=True, padx=12, before=hint_label)
         hint_label.configure(text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)")
 
+def toggle_sidebar():
+    if sidebar.winfo_ismapped():
+        sidebar.pack_forget()
+    else:
+        sidebar.pack(side="left", fill="y", before=main_area)
+
 
 def poll_incoming():
     vm.process_incoming()
@@ -515,6 +521,7 @@ def poll_incoming():
 root = ctk.CTk()
 root.title("Zwischenablagen Manager")
 root.minsize(560, 420)
+root.bind("<Control-b>", lambda event: toggle_sidebar())
 
 root.geometry("1000x560")
 
@@ -527,6 +534,11 @@ main_area.pack(side="left", fill="both", expand=True)
 # Kopfzeile
 header = ctk.CTkFrame(main_area, fg_color="transparent")
 header.pack(fill="x", padx=16, pady=(14, 8))
+
+sidebar_button = ctk.CTkButton(header, text="☰", width=32, height=28, font=FONT,
+                               fg_color="transparent", hover_color=SELECTED,
+                               text_color=TEXT, command=toggle_sidebar)
+sidebar_button.pack(side="left", padx=(0, 8))
 
 title_lable = ctk.CTkLabel(header, text="", font=FONT_TITLE)
 title_lable.pack(side="left")

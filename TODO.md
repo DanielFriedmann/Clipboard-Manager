@@ -9,18 +9,22 @@
 [] Einpflegung in Datenbank   
 [X] Sortierung nach eigener Priorisierung per Drag and Drop  
 [] Drag and Drop Sortierung in Gruppen    
-[] Gruppierungen in Farbe   
+[X] Gruppierungen in Farbe   
 [X] Tabellarische Anzeige und Sortierungen  
 [] Always im Vordergrund   
-[] Priorisierung Anzeigen lassen?    
-[] Lesezeichern umziehen  
-[] tabellenansicht  
+[X] Priorisierung Anzeigen lassen?    
+[] Lesezeichern umziehen   
+[X] Tabellenansicht   
 [] xml   
-[] Stichwort / Schlagwortsuche   
-[] Branching  
-[] RTF Strukture  
-[] Vorschau  
-[] Umbenennung Spalte  
-[] zu lange Gruppen Namen
-[] Hover in der Tabelle
-[] Ziehen mehrerer Einträge
+[] Stichwort / Schlagwortsuche    
+[] Branching   
+[] RTF Strukture   
+[] Vorschau   
+[] Umbenennung Spalte   
+[] Spalten individuell Anzeigbar und ausblendbar  
+[] zu lange Gruppen Namen  
+[] Hover in der Tabelle  
+[] Ziehen mehrerer Einträge  
+[] Einklappen von Gruppenleiste  
+[] Einstellungen und Speicherung  
+[] Tastenkürzel  
