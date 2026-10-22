@@ -33,3 +33,5 @@
 [] Speicherung  
 [] Fensterposition speichern   
 [] System Schriftart und größe übernehmen  
+[] Nur eine Instanz zulassen vom ClipboardManager  
+[] Performance in der Kachelansicht
