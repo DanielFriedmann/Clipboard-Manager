@@ -1,6 +1,7 @@
 import customtkinter as ctk
 
-from widgets import GroupIcon, text_color_for
+from widgets import GroupIcon, Tooltip, text_color_for
+
 
 ctk.set_appearance_mode("system")
 
@@ -20,5 +21,21 @@ GroupIcon(root, ("#d0d0d0", "#4a4a4a"), "▤",
           text_color=("#1a1a1a", "#f2f2f2")).pack(side="left", padx=6)
 GroupIcon(root, "transparent", "＋",
           text_color=("#6b6b6b", "#a0a0a0")).pack(side="left", padx=6)
+
+# Tooltip an einem Quadrat und an einem Knopf mit änderbarem Text
+test_icon = GroupIcon(root, "#e57373", "A")
+test_icon.pack(side="left", padx=20)
+Tooltip([test_icon, test_icon.label], "Arbeit · 3 Einträge")
+
+button = ctk.CTkButton(root, text="Hover mich, dann klick mich")
+button.pack(side="left", padx=20)
+button_tip = Tooltip(button, "Erster Text")
+
+
+def change_text():
+    button_tip.text = "Text wurde geändert"
+
+
+button.configure(command=change_text)
 
 root.mainloop()

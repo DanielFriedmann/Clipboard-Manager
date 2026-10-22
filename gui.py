@@ -4,7 +4,7 @@ import customtkinter as ctk
 
 
 from demo_data import load_demo_data
-from widgets import GroupIcon
+from widgets import GroupIcon, Tooltip
 from tkinter import messagebox, ttk, colorchooser
 from clipboard_service import ClipboardService
 from history import ClipboardHistory
@@ -468,6 +468,8 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         )
         self.toggle_button.pack(side="left")
 
+        self.toggle_tip = Tooltip(self.toggle_button, "Menü einklappen (Strg+B)")
+
         self.title_label = ctk.CTkLabel(self.header, text="Gruppen", font=FONT_TITLE,
                                         text_color=TEXT)
         self.title_label.pack(side="left", padx=(6, 0))
@@ -482,6 +484,8 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         )
         self.settings_button.pack(fill="x")
 
+        Tooltip(self.settings_button, "Einstellungen (folgt)")
+
         # Mitte: scrollbare Liste füllt den Platz dazwischen
         self.list = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.list.pack(side="top", fill="both", expand=True, padx=6)
@@ -492,6 +496,7 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
 
     def toggle_collapsed(self):
         self.collapsed = not self.collapsed
+        self.toggle_tip.text = "Menü aufklappen (Strg+B)" if self.collapsed else "Menü einklappen (Strg+B)"
 
         if self.collapsed:
             self.configure(width=SIDEBAR_COLLAPSED_WIDTH)
@@ -551,6 +556,7 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
             # ohne side: pack setzt das Quadrat automatisch in die Mitte
             icon.pack(pady=6)
             widgets = (row, bar, icon, icon.label)
+            Tooltip(list(widgets), self.vm.group_tooltip(group, name))
         else:
             bar.pack(side="left", fill="y", padx=(2, 0), pady=6)
             icon.pack(side="left", padx=(6, 8), pady=6)
@@ -596,6 +602,7 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
             label = ctk.CTkLabel(row, text="Neue Gruppe", font=FONT, text_color=MUTED, anchor="w")
             label.pack(side="left", fill="x", expand=True)
             widgets = (row, spacer, icon, icon.label, label)
+            Tooltip(list(widgets), "Neue Gruppe")
 
         for widget in widgets:
             widget.bind("<Button-1>", lambda _event: self._on_add_group())

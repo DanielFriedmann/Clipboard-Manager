@@ -99,8 +99,7 @@ class ClipboardViewModel:
 
     @property
     def count_text(self):
-        count = len(self.get_visible_items())
-        return "1 Eintrag" if count == 1 else f"{count} Einträge"
+        return self.entries_text(len(self.get_visible_items()))
 
     @property
     def empty_text(self):
@@ -183,6 +182,14 @@ class ClipboardViewModel:
     @property
     def title_text(self):
         return self.selected_group.name if self.selected_group else "Alle Einträge"
+
+    @staticmethod
+    def entries_text(count):
+        return "1 Eintrag" if count == 1 else f"{count} Einträge"
+
+    def group_tooltip(self, group, name):
+        return f"{name} · {self.entries_text(self.group_count(group))}"
+    
 
     # Ansicht
 
