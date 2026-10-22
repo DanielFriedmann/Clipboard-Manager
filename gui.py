@@ -48,7 +48,8 @@ SORT_OPTIONS = {
 }
 SORT_LABELS = {value: label for label, value in SORT_OPTIONS.items()}   # umgekehrte Richtung
 
-LOAD_DEMO_DATA = True   # beim Starten Demo-Daten laden
+LOAD_DEMO_DATA = False   # beim Starten Demo-Daten laden
+APP_VERSION = "1.0.0"
 
 # (Spalten-ID, Überschrift, Breite, Sortierung oder None)
 # Verknüpft mit Table Columns in viewmodel.py, die Reihenfolge muss übereinstimmen
@@ -809,8 +810,8 @@ def poll_incoming():
 
 
 root = ctk.CTk()
-root.title("Zwischenablagen Manager")
-root.minsize(560, 420)
+root.title(f"Zwischenablagen Manager  {APP_VERSION}")
+root.minsize(900, 420)
 root.bind("<Control-b>", lambda event: sidebar.toggle_collapsed())
 
 root.geometry("1000x560")
