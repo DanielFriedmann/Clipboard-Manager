@@ -8,7 +8,7 @@
 [] Erstellung Datenbankmodell  
 [] Einpflegung in Datenbank   
 [X] Sortierung nach eigener Priorisierung per Drag and Drop  
-[] Drag and Drop Sortierung in Gruppen    
+[X] Drag and Drop Sortierung in Gruppen    
 [X] Gruppierungen in Farbe   
 [X] Tabellarische Anzeige und Sortierungen  
 [] Always im Vordergrund   
@@ -17,16 +17,20 @@
 [X] Tabellenansicht   
 [] xml   
 [] Stichwort / Schlagwortsuche    
-[] Branching   
+[X] Branching   
 [] RTF Strukture   
 [] Vorschau   
-[] Umbenennung Spalte   
-[] Spalten individuell Anzeigbar und ausblendbar  
-[] zu lange Gruppen Namen  
+[] Umbenennung Spalte     
+[] zu lange Gruppen Namen   
 [] Hover in der Tabelle  
-[] Ziehen mehrerer Einträge  
-[] Einklappen von Gruppenleiste  
+[X] Ziehen mehrerer Einträge  
+[X] Einklappen von Gruppenleiste  
 [] Einstellungen und Speicherung  
-[] Tastenkürzel  
-[] Horizontale Scrollbar
-[] Ein Ausblendbare Spalten Tabellenansicht
+[] Tastenkürzel zB Str + B  
+[] Horizontale Scrollbar  
+[] Ein Ausblendbare Spalten Tabellenansicht   
+[] Heute / Gestern QoL improvement  
+[] Code Refaktorierung / Cleanen  
+[] Speicherung  
+[] Fensterposition speichern   
+[] System Schriftart und größe übernehmen  

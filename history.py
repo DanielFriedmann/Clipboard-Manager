@@ -72,10 +72,16 @@ class ClipboardHistory:
             items = sorted(items, key=lambda item: item.created_at, reverse=descending)
         elif sort_by == "content":
             items = sorted(items, key=lambda item: item.content.lower(), reverse=descending)
-        elif descending:
-            items.reverse()   # eigene Reihenfolge, umgedreht
         elif sort_by == "favorite":
             items = sorted(items, key=lambda item: item.is_favorite, reverse=not descending)
+        elif sort_by == "group":
+            items = sorted(
+                items,
+                key=lambda item: item.clipboard_group.name.lower() if item.clipboard_group else "",
+                reverse=descending,
+            )
+        elif descending:
+            items.reverse()   # eigene Reihenfolge, umgedreht
 
         return items
 

@@ -1,6 +1,7 @@
 import queue
+from datetime import date, timedelta
 
-PREVIEW_LENGTH = 60
+PREVIEW_LENGTH = 80
 
 
 class ClipboardViewModel:
@@ -111,11 +112,41 @@ class ClipboardViewModel:
         return len([item for item in self.get_visible_items() if not item.is_favorite])
 
     @staticmethod
-    def preview(item, max_length=PREVIEW_LENGTH):
-        text = " ".join(item.content.split())
+    def _shorten(text, max_length):
+        text = " ".join(text.split())
         if len(text) > max_length:
             text = text[:max_length - 1] + "…"
         return text
+
+    @staticmethod
+    def preview(item, max_length=PREVIEW_LENGTH):
+        return ClipboardViewModel._shorten(item.content, max_length)
+
+    @staticmethod
+    def group_name(item, max_length=None):
+        name = item.clipboard_group.name if item.clipboard_group else ""
+        if max_length:
+            return ClipboardViewModel._shorten(name, max_length)
+        return name
+
+    @staticmethod
+    def group_color(item):
+        return item.clipboard_group.color if item.clipboard_group else "#9e9e9e"
+
+    @staticmethod
+    def date_text(item):
+        day = item.created_at.date()
+        today = date.today()
+        if day == today:
+            return "Heute"
+        if day == today - timedelta(days=1):
+            return "Gestern"
+        return day.strftime("%d.%m.%Y")
+
+    @property
+    def show_group(self):
+        # Gruppenname nur in "Alle Einträge" anzeigen
+        return self.selected_group is None
 
     @staticmethod
     def time_text(item):
@@ -213,6 +244,10 @@ class ClipboardViewModel:
 
     def select_group(self, group):
         self.selected_group = group
+        # Nach Gruppe sortieren ergibt innerhalb einer Gruppe keinen Sinn
+        if group is not None and self.sort_by == "group":
+            self.sort_by = "priority"
+            self.descending = False
         self._notify()
 
     def add_group(self, name, color):

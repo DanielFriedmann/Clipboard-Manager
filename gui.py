@@ -1,8 +1,9 @@
 import threading
 import tkinter as tk
-from tkinter import messagebox, ttk, colorchooser
 import customtkinter as ctk
+from demo_data import load_demo_data
 
+from tkinter import messagebox, ttk, colorchooser
 from clipboard_service import ClipboardService
 from history import ClipboardHistory
 from viewmodel import ClipboardViewModel
@@ -33,15 +34,19 @@ SORT_OPTIONS = {
     "Eigene Reihenfolge": "priority",
     "Zeitstempel": "time",
     "Inhalt": "content",
-    "Favorit": "favorite"
+    "Gruppe": "group",
+    "Favoriten": "favorite"
 }
 SORT_LABELS = {value: label for label, value in SORT_OPTIONS.items()}   # umgekehrte Richtung
+
+LOAD_DEMO_DATA = True   # beim Starten Demo-Daten laden
 
 # (Spalten-ID, Überschrift, Breite, Sortierung oder None)
 COLUMNS = [
     ("check", "☐", 40, None),
     ("position", "Pos.", 50, "priority"),
     ("content", "Inhalt", 380, "content"),
+    ("group", "Gruppe", 120, "group"),
     ("time", "Zeitstempel", 140, "time"),
     ("favorite", "★", 40, "favorite"),
 ]
@@ -82,39 +87,68 @@ class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
         card = ctk.CTkFrame(self, fg_color=CARD, corner_radius=8)
         card.pack(fill="x", padx=4, pady=4)
 
-        ctk.CTkButton(
-            card, text="✕", width=28, height=28,
-            fg_color="transparent", hover_color=CARD_HOVER, text_color=MUTED,
-            command=lambda i=item: self.vm.delete(i),
-        ).pack(side="right", padx=(0, 8))
+        # Spaltenaufteilung: nur die Vorschau wächst, rechts feste Breiten
+        card.grid_columnconfigure(1, weight=1)
+        card.grid_columnconfigure(2, minsize=96)
+        card.grid_columnconfigure(3, minsize=96)
+
+        # Spalte 0: farbiger Streifen der Gruppe
+        stripe = ctk.CTkFrame(card, width=4, height=1, corner_radius=2,
+                              fg_color=self.vm.group_color(item))
+        stripe.grid(row=0, column=0, sticky="ns", padx=(6, 0), pady=8)
+
+        # Spalte 1: Vorschau, verlangt keinen eigenen Platz und wird an der Kante abgeschnitten
+        preview_label = ctk.CTkLabel(card, text=self.vm.preview(item), font=FONT,
+                                     text_color=TEXT, anchor="w", justify="left", width=1)
+        preview_label.grid(row=0, column=1, sticky="ew", padx=(12, 16), pady=10)
+
+        # Spalte 2: Uhrzeit über Datum, rechtsbündig
+        time_box = ctk.CTkFrame(card, fg_color="transparent")
+        time_box.grid(row=0, column=2, sticky="e", padx=(0, 8))
+
+        time_label = ctk.CTkLabel(time_box, text=self.vm.time_text(item), font=FONT_SMALL,
+                                  text_color=TEXT, width=88, height=18, anchor="e")
+        time_label.pack(anchor="e")
+        date_label = ctk.CTkLabel(time_box, text=self.vm.date_text(item), font=FONT_SMALL,
+                                  text_color=MUTED, width=88, height=18, anchor="e")
+        date_label.pack(anchor="e")
+
+        # Spalte 3: Stern und X über dem Gruppennamen, rechtsbündig
+        action_box = ctk.CTkFrame(card, fg_color="transparent")
+        action_box.grid(row=0, column=3, sticky="e", padx=(0, 8))
+
+        buttons = ctk.CTkFrame(action_box, fg_color="transparent")
+        buttons.pack(anchor="e")
 
         ctk.CTkButton(
-            card, text="★" if item.is_favorite else "☆", width=28, height=28,
+            buttons, text="★" if item.is_favorite else "☆", width=28, height=24,
             fg_color="transparent", hover_color=CARD_HOVER,
             text_color=ACCENT if item.is_favorite else MUTED,
             command=lambda i=item: self.vm.toggle_favorite(i),
-        ).pack(side="right")
+        ).pack(side="left")
 
-        preview_label = ctk.CTkLabel(
-            card, text=self.vm.preview(item), font=FONT,
-            text_color=TEXT, anchor="w", justify="left",
-        )
-        preview_label.pack(fill="x", padx=12, pady=(8, 0))
+        ctk.CTkButton(
+            buttons, text="✕", width=28, height=24,
+            fg_color="transparent", hover_color=CARD_HOVER, text_color=MUTED,
+            command=lambda i=item: self.vm.delete(i),
+        ).pack(side="left")
 
-        time_label = ctk.CTkLabel(
-            card, text=self.vm.time_text(item), font=FONT_SMALL,
-            text_color=MUTED, anchor="w",
-        )
-        time_label.pack(fill="x", padx=12, pady=(0, 8))
+        # in Gruppenansichten leer, aber gleich hoch, damit die Kachel nicht springt
+        group_text = self.vm.group_name(item, max_length=12) if self.vm.show_group else ""
+        group_label = ctk.CTkLabel(action_box, text=group_text, font=FONT_SMALL,
+                                   text_color=MUTED, width=96, height=18, anchor="e")
+        group_label.pack(anchor="e")
 
         self.card_items[card] = item
 
-        for widget in (card, preview_label, time_label):
+        # Klick, Ziehen und Hover auf allem außer den Buttons
+        for widget in (card, stripe, preview_label, time_box, time_label, date_label,
+                       action_box, buttons, group_label):
             widget.bind("<ButtonPress-1>", lambda event, i=item: self._on_press(event, i))
             widget.bind("<B1-Motion>", self._on_motion)
             widget.bind("<ButtonRelease-1>", self._on_release)
-            widget.bind("<Enter>", lambda event, c=card: c.configure(fg_color=CARD_HOVER))
-            widget.bind("<Leave>", lambda event, c=card: self._on_card_leave(c))
+            widget.bind("<Enter>", lambda _event, c=card: c.configure(fg_color=CARD_HOVER))
+            widget.bind("<Leave>", lambda _event, c=card: self._on_card_leave(c))
 
     #  Hover 
 
@@ -232,6 +266,10 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
     def refresh(self):
         self._apply_style()
 
+        visible_columns = [column[0] for column in COLUMNS
+                           if column[0] != "group" or self.vm.show_group]
+        self.tree.configure(displaycolumns=visible_columns)
+
         self.tree.delete(*self.tree.get_children())
         self.row_items.clear()
 
@@ -240,6 +278,7 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
                 "☑" if self.vm.is_checked(item) else "☐",
                 self.vm.position(item),
                 self.vm.preview(item, 80),
+                self.vm.group_name(item),
                 self.vm.datetime_text(item),
                 "★" if item.is_favorite else "☆",
             )
@@ -276,7 +315,10 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
 
     def _column_id_at(self, x):
         index = int(self.tree.identify_column(x)[1:]) - 1
-        return COLUMNS[index][0]
+        displayed = self.tree["displaycolumns"]
+        if displayed in ("#all", ("#all",)):
+            displayed = [column[0] for column in COLUMNS]
+        return displayed[index]
 
     def _set_drop_row(self, row_id):
         old = self.drag["target_row"]
@@ -580,11 +622,12 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
 #  Verknüpfung: Daten, ViewModel, Service
 
 
-history = ClipboardHistory()
+history = ClipboardHistory()   
+if LOAD_DEMO_DATA:
+    load_demo_data(history)
 vm = ClipboardViewModel(history)
 service = ClipboardService(vm.receive_text)
 vm.service = service
-
 
 #  Hauptfenster
 
