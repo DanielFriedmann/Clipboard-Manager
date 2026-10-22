@@ -25,10 +25,10 @@
 [X] Ziehen mehrerer Einträge  
 [X] Einklappen von Gruppenleiste  
 [] Einstellungen und Speicherung  
-[] Tastenkürzel zB Str + B  
+[X] Tastenkürzel zB Str + B  
 [] Horizontale Scrollbar  
 [] Ein Ausblendbare Spalten Tabellenansicht   
-[] Heute / Gestern QoL improvement  
+[X] Heute / Gestern QoL improvement  
 [] Code Refaktorierung / Cleanen  
 [] Speicherung  
 [] Fensterposition speichern   
