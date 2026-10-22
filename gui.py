@@ -1,8 +1,10 @@
 import threading
 import tkinter as tk
 import customtkinter as ctk
-from demo_data import load_demo_data
 
+
+from demo_data import load_demo_data
+from widgets import GroupIcon
 from tkinter import messagebox, ttk, colorchooser
 from clipboard_service import ClipboardService
 from history import ClipboardHistory
@@ -23,6 +25,10 @@ SELECTED = ("#dbe7f6", "#33415c")
 DIVIDER = ("#d0d0d0", "#3a3a3a")
 DEFAULT_GROUP_COLOR = "#9e9e9e"
 SIDEBAR_HOVER = ("#dedede", "#2c2c2c")
+
+ALL_ICON_COLOR = ("#d0d0d0", "#4a4a4a")
+ALL_ICON_SYMBOL = "≡"
+ALL_ICON_FONT = ("Segoe UI Symbol", 15)
 
 FONT = ("Segoe UI", 13)
 FONT_TITLE = ("Segoe UI Semibold", 18)
@@ -521,20 +527,31 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         row = ctk.CTkFrame(self.list, corner_radius=6, border_width=0, fg_color=normal_color)
         row.pack(fill="x", pady=1)
 
-        dot = ctk.CTkFrame(row, width=10, height=10, corner_radius=5,
-                           fg_color=color if color else "transparent")
-        dot.pack(side="left", padx=(10, 8), pady=10)
+        # Auswahlbalken links, nur bei der ausgewählten Zeile sichtbar
+        bar = ctk.CTkFrame(row, width=3, height=1, corner_radius=2,
+                           fg_color=ACCENT if is_selected else "transparent")
+        bar.pack(side="left", fill="y", padx=(2, 0), pady=6)
 
-        name_label = ctk.CTkLabel(row, text=name, font=FONT, text_color=TEXT, anchor="w")
-        name_label.pack(side="left", fill="x", expand=True)
+        # Quadrat: "Alle Einträge" mit Symbol, Gruppen mit Anfangsbuchstaben
+        if group is None:
+            icon = GroupIcon(row, ALL_ICON_COLOR, ALL_ICON_SYMBOL, text_color=TEXT,
+                             font=ALL_ICON_FONT)
+        else:
+            icon = GroupIcon(row, color, self.vm.group_initial(group))
+        icon.pack(side="left", padx=(6, 8), pady=6)
 
+        # Anzahl zuerst packen, damit sie sich ihren Platz rechts reserviert
         count_label = ctk.CTkLabel(row, text=str(self.vm.group_count(group)),
-                                   font=FONT_SMALL, text_color=MUTED)
-        count_label.pack(side="right", padx=(0, 10))
+                                   font=FONT_SMALL, text_color=MUTED, width=24, anchor="e")
+        count_label.pack(side="right", padx=(4, 10))
+
+        # Name füllt nur den übrigen Platz und wird notfalls gekürzt
+        name_label = ctk.CTkLabel(row, text=self.vm.sidebar_name(name), width = 1, font=FONT, text_color=TEXT, anchor="w")
+        name_label.pack(side="left", fill="x", expand=True)
 
         self.row_groups[row] = group
 
-        for widget in (row, dot, name_label, count_label):
+        for widget in (row, bar, icon, icon.label, name_label, count_label):
             widget.bind("<ButtonPress-1>", lambda event, g=group: self._on_press(event, g))
             widget.bind("<B1-Motion>", self._on_motion)
             widget.bind("<ButtonRelease-1>", self._on_release)
@@ -544,11 +561,23 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
                 widget.bind("<Button-3>", lambda event, g=group: self._on_group_menu(event, g))
 
     def _create_add_row(self):
-        ctk.CTkButton(
-            self.list, text="＋  Neue Gruppe", anchor="w", height=32, font=FONT,
-            fg_color="transparent", hover_color=SIDEBAR_HOVER, text_color=MUTED,
-            command=self._on_add_group,
-        ).pack(fill="x", pady=(4, 0))
+        row = ctk.CTkFrame(self.list, corner_radius=6, fg_color="transparent")
+        row.pack(fill="x", pady=(4, 1))
+
+        # Platzhalter in Breite des Auswahlbalkens, damit die Quadrate untereinander stehen
+        spacer = ctk.CTkFrame(row, width=3, height=1, fg_color="transparent")
+        spacer.pack(side="left", padx=(2, 0))
+
+        icon = GroupIcon(row, "transparent", "＋", text_color=MUTED)
+        icon.pack(side="left", padx=(6, 8), pady=6)
+
+        label = ctk.CTkLabel(row, text="Neue Gruppe", font=FONT, text_color=MUTED, anchor="w")
+        label.pack(side="left", fill="x", expand=True)
+
+        for widget in (row, spacer, icon, icon.label, label):
+            widget.bind("<Button-1>", lambda _event: self._on_add_group())
+            widget.bind("<Enter>", lambda _event, r=row: self._on_row_enter(r, False))
+            widget.bind("<Leave>", lambda _event, r=row: self._on_row_leave(r, "transparent"))
 
     # Hover
 

@@ -48,6 +48,10 @@ class ClipboardViewModel:
 
     # Daten für die Ansichten
 
+    @staticmethod
+    def sidebar_name(name, max_length=16):
+        return ClipboardViewModel._shorten(name, max_length)
+    
     def get_visible_items(self):
         return self.history.get_history(
             group=self.selected_group,

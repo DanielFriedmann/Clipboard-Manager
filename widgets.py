@@ -17,13 +17,13 @@ def text_color_for(background):
 class GroupIcon(ctk.CTkFrame):
     # Farbiges Quadrat mit einem Zeichen in der Mitte
 
-    def __init__(self, master, color, text, size=24, text_color=None):
+    def __init__(self, master, color, text, size=24, text_color=None, font=ICON_FONT):
         super().__init__(master, width=size, height=size, corner_radius=5, fg_color=color)
-        self.pack_propagate(False)   # feste Größe, unabhängig vom Inhalt
+        self.pack_propagate(False)
 
         if text_color is None:
             text_color = text_color_for(color)
 
-        self.label = ctk.CTkLabel(self, text=text, font=ICON_FONT, text_color=text_color,
+        self.label = ctk.CTkLabel(self, text=text, font=font, text_color=text_color,
                                   width=size, height=size)
         self.label.place(relx=0.5, rely=0.5, anchor="center")
