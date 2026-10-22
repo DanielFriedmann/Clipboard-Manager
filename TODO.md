@@ -12,8 +12,7 @@
 [X] Gruppierungen in Farbe   
 [X] Tabellarische Anzeige und Sortierungen  
 [] Always im Vordergrund   
-[X] Priorisierung Anzeigen lassen?    
-[] Lesezeichern umziehen   
+[X] Priorisierung Anzeigen lassen?       
 [X] Tabellenansicht   
 [] xml   
 [] Stichwort / Schlagwortsuche    
@@ -21,7 +20,7 @@
 [] RTF Strukture   
 [] Vorschau   
 [] Umbenennung Spalte     
-[] zu lange Gruppen Namen   
+[X] zu lange Gruppen Namen   
 [] Hover in der Tabelle  
 [X] Ziehen mehrerer Einträge  
 [X] Einklappen von Gruppenleiste  

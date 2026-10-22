@@ -2,6 +2,8 @@ import queue
 from datetime import date, timedelta
 
 PREVIEW_LENGTH = 80
+# Spalten der Tabelle in ihrer Reihenfolge; Überschriften und Breiten stehen in gui.py
+TABLE_COLUMNS = ("check", "position", "content", "group", "time", "favorite")
 
 
 class ClipboardViewModel:
@@ -147,6 +149,11 @@ class ClipboardViewModel:
     def show_group(self):
         # Gruppenname nur in "Alle Einträge" anzeigen
         return self.selected_group is None
+
+    @property
+    def visible_columns(self):
+        # vorerst nur die automatische Regel, später auch Benutzereinstellungen
+        return [column for column in TABLE_COLUMNS if column != "group" or self.show_group]
 
     @staticmethod
     def time_text(item):

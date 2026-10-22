@@ -42,6 +42,7 @@ SORT_LABELS = {value: label for label, value in SORT_OPTIONS.items()}   # umgeke
 LOAD_DEMO_DATA = True   # beim Starten Demo-Daten laden
 
 # (Spalten-ID, Überschrift, Breite, Sortierung oder None)
+# Verknüpft mit Table Columns in viewmodel.py, die Reihenfolge muss übereinstimmen
 COLUMNS = [
     ("check", "☐", 40, None),
     ("position", "Pos.", 50, "priority"),
@@ -265,6 +266,8 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
 
     def refresh(self):
         self._apply_style()
+
+        self.tree.configure(displaycolumns=self.vm.visible_columns)
 
         visible_columns = [column[0] for column in COLUMNS
                            if column[0] != "group" or self.vm.show_group]
