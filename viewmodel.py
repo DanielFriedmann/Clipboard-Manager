@@ -48,6 +48,10 @@ class ClipboardViewModel:
 
     # Daten für die Ansichten
 
+    @staticmethod
+    def sidebar_name(name, max_length=16):
+        return ClipboardViewModel._shorten(name, max_length)
+    
     def get_visible_items(self):
         return self.history.get_history(
             group=self.selected_group,
@@ -95,8 +99,7 @@ class ClipboardViewModel:
 
     @property
     def count_text(self):
-        count = len(self.get_visible_items())
-        return "1 Eintrag" if count == 1 else f"{count} Einträge"
+        return self.entries_text(len(self.get_visible_items()))
 
     @property
     def empty_text(self):
@@ -124,6 +127,11 @@ class ClipboardViewModel:
     def preview(item, max_length=PREVIEW_LENGTH):
         return ClipboardViewModel._shorten(item.content, max_length)
 
+    @staticmethod
+    def group_initial(group):
+        name = group.name.strip() if group else ""
+        return name[:1].upper() or "?"
+    
     @staticmethod
     def group_name(item, max_length=None):
         name = item.clipboard_group.name if item.clipboard_group else ""
@@ -174,6 +182,14 @@ class ClipboardViewModel:
     @property
     def title_text(self):
         return self.selected_group.name if self.selected_group else "Alle Einträge"
+
+    @staticmethod
+    def entries_text(count):
+        return "1 Eintrag" if count == 1 else f"{count} Einträge"
+
+    def group_tooltip(self, group, name):
+        return f"{name} · {self.entries_text(self.group_count(group))}"
+    
 
     # Ansicht
 

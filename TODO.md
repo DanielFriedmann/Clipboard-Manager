@@ -35,3 +35,4 @@
 [] System Schriftart und größe übernehmen  
 [] Nur eine Instanz zulassen vom ClipboardManager  
 [] Performance in der Kachelansicht
+[] Bug bei Skalierung bei wechsel von bildschirm

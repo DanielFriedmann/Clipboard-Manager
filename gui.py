@@ -1,8 +1,10 @@
 import threading
 import tkinter as tk
 import customtkinter as ctk
-from demo_data import load_demo_data
 
+
+from demo_data import load_demo_data
+from widgets import GroupIcon, Tooltip
 from tkinter import messagebox, ttk, colorchooser
 from clipboard_service import ClipboardService
 from history import ClipboardHistory
@@ -24,9 +26,16 @@ DIVIDER = ("#d0d0d0", "#3a3a3a")
 DEFAULT_GROUP_COLOR = "#9e9e9e"
 SIDEBAR_HOVER = ("#dedede", "#2c2c2c")
 
+ALL_ICON_COLOR = ("#d0d0d0", "#4a4a4a")
+ALL_ICON_SYMBOL = "≡"
+ALL_ICON_FONT = ("Segoe UI Symbol", 15)
+
 FONT = ("Segoe UI", 13)
 FONT_TITLE = ("Segoe UI Semibold", 18)
 FONT_SMALL = ("Segoe UI", 11)
+
+SIDEBAR_EXPANDED_WIDTH = 210
+SIDEBAR_COLLAPSED_WIDTH = 52
 
 DRAG_THRESHOLD = 5
 
@@ -439,22 +448,71 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
 
 class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
     def __init__(self, master, vm):
-        super().__init__(master, width=210, corner_radius=0, fg_color=SIDEBAR)
+        super().__init__(master, width=SIDEBAR_EXPANDED_WIDTH, corner_radius=0, fg_color=SIDEBAR)
         self.pack_propagate(False)
         self.vm = vm
+        self.collapsed = False
         self.row_groups = {}   # Zeile → Gruppe (None = "Alle Einträge")
         self.highlighted_row = None
+        self.list = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0)
         self.drag = {"group": None, "start_y": 0, "active": False}
 
-        ctk.CTkLabel(self, text="Gruppen", font=FONT_TITLE, text_color=TEXT).pack(
-            anchor="w", padx=16, pady=(14, 8))
+        # Kopf: Umschalter und Titel
+        self.header = ctk.CTkFrame(self, fg_color="transparent")
+        self.header.pack(side="top", fill="x", padx=6, pady=(10, 6))
 
+        self.toggle_button = ctk.CTkButton(
+            self.header, text="☰", width=36, height=32, font=FONT,
+            fg_color="transparent", hover_color=SIDEBAR_HOVER, text_color=TEXT,
+            command=self.toggle_collapsed,
+        )
+        self.toggle_button.pack(side="left")
+
+        self.toggle_tip = Tooltip(self.toggle_button, "Menü einklappen (Strg+B)")
+
+        self.title_label = ctk.CTkLabel(self.header, text="Gruppen", font=FONT_TITLE,
+                                        text_color=TEXT)
+        self.title_label.pack(side="left", padx=(6, 0))
+
+        # Fuß: vor der Liste packen, damit er unten fest bleibt
+        self.footer = ctk.CTkFrame(self, fg_color="transparent")
+        self.footer.pack(side="bottom", fill="x", padx=6, pady=(6, 10))
+
+        self.settings_button = ctk.CTkButton(
+            self.footer, text="⚙  Einstellungen", anchor="w", height=32, font=FONT,
+            fg_color="transparent", hover_color=SIDEBAR_HOVER, text_color=TEXT,
+        )
+        self.settings_button.pack(fill="x")
+
+        Tooltip(self.settings_button, "Einstellungen (folgt)")
+
+        # Mitte: scrollbare Liste füllt den Platz dazwischen
         self.list = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.list.pack(fill="both", expand=True, padx=6, pady=(0, 8))
+        self.list.pack(side="top", fill="both", expand=True, padx=6)
 
         vm.subscribe(self.refresh)
 
     # Zeichnen
+
+    def toggle_collapsed(self):
+        self.collapsed = not self.collapsed
+        self.toggle_tip.text = "Menü aufklappen (Strg+B)" if self.collapsed else "Menü einklappen (Strg+B)"
+
+        if self.collapsed:
+            self.configure(width=SIDEBAR_COLLAPSED_WIDTH)
+            self.title_label.pack_forget()
+            self.settings_button.configure(text="⚙", anchor="center")
+            self.list.pack_configure(padx=3)
+            # Achtung: _scrollbar ist ein internes Feld von CustomTkinter
+            self.list._scrollbar.grid_remove()
+        else:
+            self.configure(width=SIDEBAR_EXPANDED_WIDTH)
+            self.title_label.pack(side="left", padx=(6, 0))
+            self.settings_button.configure(text="⚙  Einstellungen", anchor="w")
+            self.list.pack_configure(padx=6)
+            self.list._scrollbar.grid()
+
+        self.refresh()
 
     def refresh(self):
         self.row_groups.clear()
@@ -467,8 +525,9 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         self._create_row(default, default.name, default.color)
         self._create_add_row()
 
+        divider_padx = 4 if self.collapsed else 8
         ctk.CTkFrame(self.list, height=2, corner_radius=0, fg_color=DIVIDER).pack(
-            fill="x", padx=8, pady=8)
+            fill="x", padx=divider_padx, pady=8)
 
         for group in self.vm.custom_groups:
             self._create_row(group, group.name, group.color)
@@ -480,20 +539,43 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         row = ctk.CTkFrame(self.list, corner_radius=6, border_width=0, fg_color=normal_color)
         row.pack(fill="x", pady=1)
 
-        dot = ctk.CTkFrame(row, width=10, height=10, corner_radius=5,
-                           fg_color=color if color else "transparent")
-        dot.pack(side="left", padx=(10, 8), pady=10)
+        # Auswahlbalken links, nur bei der ausgewählten Zeile sichtbar
+        bar = ctk.CTkFrame(row, width=3, height=1, corner_radius=2,
+                           fg_color=ACCENT if is_selected else "transparent")
 
-        name_label = ctk.CTkLabel(row, text=name, font=FONT, text_color=TEXT, anchor="w")
-        name_label.pack(side="left", fill="x", expand=True)
+        # Quadrat: "Alle Einträge" mit Symbol, Gruppen mit Anfangsbuchstaben
+        if group is None:
+            icon = GroupIcon(row, ALL_ICON_COLOR, ALL_ICON_SYMBOL, text_color=TEXT,
+                             font=ALL_ICON_FONT)
+        else:
+            icon = GroupIcon(row, color, self.vm.group_initial(group))
 
-        count_label = ctk.CTkLabel(row, text=str(self.vm.group_count(group)),
-                                   font=FONT_SMALL, text_color=MUTED)
-        count_label.pack(side="right", padx=(0, 10))
+        if self.collapsed:
+            # Balken frei an den linken Rand, nimmt keinen Platz weg
+            bar.place(x=2, rely=0.5, anchor="w", relheight=0.6)
+            # ohne side: pack setzt das Quadrat automatisch in die Mitte
+            icon.pack(pady=6)
+            widgets = (row, bar, icon, icon.label)
+            Tooltip(list(widgets), self.vm.group_tooltip(group, name))
+        else:
+            bar.pack(side="left", fill="y", padx=(2, 0), pady=6)
+            icon.pack(side="left", padx=(6, 8), pady=6)
+
+            # Anzahl zuerst packen, damit sie sich ihren Platz rechts reserviert
+            count_label = ctk.CTkLabel(row, text=str(self.vm.group_count(group)),
+                                       font=FONT_SMALL, text_color=MUTED, width=24, anchor="e")
+            count_label.pack(side="right", padx=(4, 10))
+
+            # Name füllt nur den übrigen Platz und wird notfalls gekürzt
+            name_label = ctk.CTkLabel(row, text=self.vm.sidebar_name(name), font=FONT,
+                                      text_color=TEXT, anchor="w", width=1)
+            name_label.pack(side="left", fill="x", expand=True)
+
+            widgets = (row, bar, icon, icon.label, name_label, count_label)
 
         self.row_groups[row] = group
 
-        for widget in (row, dot, name_label, count_label):
+        for widget in widgets:
             widget.bind("<ButtonPress-1>", lambda event, g=group: self._on_press(event, g))
             widget.bind("<B1-Motion>", self._on_motion)
             widget.bind("<ButtonRelease-1>", self._on_release)
@@ -503,11 +585,29 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
                 widget.bind("<Button-3>", lambda event, g=group: self._on_group_menu(event, g))
 
     def _create_add_row(self):
-        ctk.CTkButton(
-            self.list, text="＋  Neue Gruppe", anchor="w", height=32, font=FONT,
-            fg_color="transparent", hover_color=SIDEBAR_HOVER, text_color=MUTED,
-            command=self._on_add_group,
-        ).pack(fill="x", pady=(4, 0))
+        row = ctk.CTkFrame(self.list, corner_radius=6, fg_color="transparent")
+        row.pack(fill="x", pady=(4, 1))
+
+        icon = GroupIcon(row, "transparent", "＋", text_color=MUTED)
+
+        if self.collapsed:
+            icon.pack(pady=6)
+            widgets = (row, icon, icon.label)
+        else:
+            # Platzhalter in Breite des Auswahlbalkens, damit die Quadrate untereinander stehen
+            spacer = ctk.CTkFrame(row, width=3, height=1, fg_color="transparent")
+            spacer.pack(side="left", padx=(2, 0))
+            icon.pack(side="left", padx=(6, 8), pady=6)
+
+            label = ctk.CTkLabel(row, text="Neue Gruppe", font=FONT, text_color=MUTED, anchor="w")
+            label.pack(side="left", fill="x", expand=True)
+            widgets = (row, spacer, icon, icon.label, label)
+            Tooltip(list(widgets), "Neue Gruppe")
+
+        for widget in widgets:
+            widget.bind("<Button-1>", lambda _event: self._on_add_group())
+            widget.bind("<Enter>", lambda _event, r=row: self._on_row_enter(r, False))
+            widget.bind("<Leave>", lambda _event, r=row: self._on_row_leave(r, "transparent"))
 
     # Hover
 
@@ -700,11 +800,6 @@ def on_view_change(choice):
         card_view.pack(fill="both", expand=True, padx=12, before=hint_label)
         hint_label.configure(text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)")
 
-def toggle_sidebar():
-    if sidebar.winfo_ismapped():
-        sidebar.pack_forget()
-    else:
-        sidebar.pack(side="left", fill="y", before=main_area)
 
 
 def poll_incoming():
@@ -716,7 +811,7 @@ def poll_incoming():
 root = ctk.CTk()
 root.title("Zwischenablagen Manager")
 root.minsize(560, 420)
-root.bind("<Control-b>", lambda event: toggle_sidebar())
+root.bind("<Control-b>", lambda event: sidebar.toggle_collapsed())
 
 root.geometry("1000x560")
 
@@ -729,11 +824,6 @@ main_area.pack(side="left", fill="both", expand=True)
 # Kopfzeile
 header = ctk.CTkFrame(main_area, fg_color="transparent")
 header.pack(fill="x", padx=16, pady=(14, 8))
-
-sidebar_button = ctk.CTkButton(header, text="☰", width=32, height=28, font=FONT,
-                               fg_color="transparent", hover_color=SELECTED,
-                               text_color=TEXT, command=toggle_sidebar)
-sidebar_button.pack(side="left", padx=(0, 8))
 
 title_lable = ctk.CTkLabel(header, text="", font=FONT_TITLE)
 title_lable.pack(side="left")
