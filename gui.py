@@ -28,6 +28,9 @@ FONT = ("Segoe UI", 13)
 FONT_TITLE = ("Segoe UI Semibold", 18)
 FONT_SMALL = ("Segoe UI", 11)
 
+SIDEBAR_EXPANDED_WIDTH = 210
+SIDEBAR_COLLAPSED_WIDTH = 52
+
 DRAG_THRESHOLD = 5
 
 SORT_OPTIONS = {
@@ -439,22 +442,60 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
 
 class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
     def __init__(self, master, vm):
-        super().__init__(master, width=210, corner_radius=0, fg_color=SIDEBAR)
+        super().__init__(master, width=SIDEBAR_EXPANDED_WIDTH, corner_radius=0, fg_color=SIDEBAR)
         self.pack_propagate(False)
         self.vm = vm
+        self.collapsed = False
         self.row_groups = {}   # Zeile → Gruppe (None = "Alle Einträge")
         self.highlighted_row = None
         self.drag = {"group": None, "start_y": 0, "active": False}
 
-        ctk.CTkLabel(self, text="Gruppen", font=FONT_TITLE, text_color=TEXT).pack(
-            anchor="w", padx=16, pady=(14, 8))
+        # Kopf: Umschalter und Titel
+        self.header = ctk.CTkFrame(self, fg_color="transparent")
+        self.header.pack(side="top", fill="x", padx=6, pady=(10, 6))
 
+        self.toggle_button = ctk.CTkButton(
+            self.header, text="☰", width=36, height=32, font=FONT,
+            fg_color="transparent", hover_color=SIDEBAR_HOVER, text_color=TEXT,
+            command=self.toggle_collapsed,
+        )
+        self.toggle_button.pack(side="left")
+
+        self.title_label = ctk.CTkLabel(self.header, text="Gruppen", font=FONT_TITLE,
+                                        text_color=TEXT)
+        self.title_label.pack(side="left", padx=(6, 0))
+
+        # Fuß: vor der Liste packen, damit er unten fest bleibt
+        self.footer = ctk.CTkFrame(self, fg_color="transparent")
+        self.footer.pack(side="bottom", fill="x", padx=6, pady=(6, 10))
+
+        self.settings_button = ctk.CTkButton(
+            self.footer, text="⚙  Einstellungen", anchor="w", height=32, font=FONT,
+            fg_color="transparent", hover_color=SIDEBAR_HOVER, text_color=TEXT,
+        )
+        self.settings_button.pack(fill="x")
+
+        # Mitte: scrollbare Liste füllt den Platz dazwischen
         self.list = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.list.pack(fill="both", expand=True, padx=6, pady=(0, 8))
+        self.list.pack(side="top", fill="both", expand=True, padx=6)
 
         vm.subscribe(self.refresh)
 
     # Zeichnen
+
+    def toggle_collapsed(self):
+        self.collapsed = not self.collapsed
+
+        if self.collapsed:
+            self.configure(width=SIDEBAR_COLLAPSED_WIDTH)
+            self.title_label.pack_forget()
+            self.settings_button.configure(text="⚙", anchor="center")
+        else:
+            self.configure(width=SIDEBAR_EXPANDED_WIDTH)
+            self.title_label.pack(side="left", padx=(6, 0))
+            self.settings_button.configure(text="⚙  Einstellungen", anchor="w")
+
+        self.refresh()
 
     def refresh(self):
         self.row_groups.clear()
@@ -700,11 +741,6 @@ def on_view_change(choice):
         card_view.pack(fill="both", expand=True, padx=12, before=hint_label)
         hint_label.configure(text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)")
 
-def toggle_sidebar():
-    if sidebar.winfo_ismapped():
-        sidebar.pack_forget()
-    else:
-        sidebar.pack(side="left", fill="y", before=main_area)
 
 
 def poll_incoming():
@@ -716,7 +752,7 @@ def poll_incoming():
 root = ctk.CTk()
 root.title("Zwischenablagen Manager")
 root.minsize(560, 420)
-root.bind("<Control-b>", lambda event: toggle_sidebar())
+root.bind("<Control-b>", lambda event: sidebar.toggle_collapsed())
 
 root.geometry("1000x560")
 
@@ -729,11 +765,6 @@ main_area.pack(side="left", fill="both", expand=True)
 # Kopfzeile
 header = ctk.CTkFrame(main_area, fg_color="transparent")
 header.pack(fill="x", padx=16, pady=(14, 8))
-
-sidebar_button = ctk.CTkButton(header, text="☰", width=32, height=28, font=FONT,
-                               fg_color="transparent", hover_color=SELECTED,
-                               text_color=TEXT, command=toggle_sidebar)
-sidebar_button.pack(side="left", padx=(0, 8))
 
 title_lable = ctk.CTkLabel(header, text="", font=FONT_TITLE)
 title_lable.pack(side="left")
