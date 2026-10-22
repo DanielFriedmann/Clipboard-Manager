@@ -1,7 +1,9 @@
 import threading
-from tkinter import messagebox, ttk
+import tkinter as tk
 import customtkinter as ctk
+from demo_data import load_demo_data
 
+from tkinter import messagebox, ttk, colorchooser
 from clipboard_service import ClipboardService
 from history import ClipboardHistory
 from viewmodel import ClipboardViewModel
@@ -16,6 +18,11 @@ CARD_HOVER = ("#e8f0fb", "#3a3a3a")
 TEXT = ("#1a1a1a", "#f2f2f2")
 MUTED = ("#6b6b6b", "#a0a0a0")
 ACCENT = ("#0067c0", "#4ca0e0")
+SIDEBAR = ("#ebebeb", "#212121")
+SELECTED = ("#dbe7f6", "#33415c")
+DIVIDER = ("#d0d0d0", "#3a3a3a")
+DEFAULT_GROUP_COLOR = "#9e9e9e"
+SIDEBAR_HOVER = ("#dedede", "#2c2c2c")
 
 FONT = ("Segoe UI", 13)
 FONT_TITLE = ("Segoe UI Semibold", 18)
@@ -27,26 +34,38 @@ SORT_OPTIONS = {
     "Eigene Reihenfolge": "priority",
     "Zeitstempel": "time",
     "Inhalt": "content",
+    "Gruppe": "group",
+    "Favoriten": "favorite"
 }
 SORT_LABELS = {value: label for label, value in SORT_OPTIONS.items()}   # umgekehrte Richtung
 
+LOAD_DEMO_DATA = True   # beim Starten Demo-Daten laden
+
 # (Spalten-ID, Überschrift, Breite, Sortierung oder None)
+# Verknüpft mit Table Columns in viewmodel.py, die Reihenfolge muss übereinstimmen
 COLUMNS = [
     ("check", "☐", 40, None),
     ("position", "Pos.", 50, "priority"),
     ("content", "Inhalt", 380, "content"),
+    ("group", "Gruppe", 120, "group"),
     ("time", "Zeitstempel", 140, "time"),
-    ("favorite", "★", 40, None),
+    ("favorite", "★", 40, "favorite"),
 ]
 
+def place_near(dialog, parent, width=320, height=180):
+    # Dialog mit fester Größe über dem Elternfenster platzieren
+    parent.update_idletasks()
+    x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
+    y = parent.winfo_rooty() + (parent.winfo_height() - height) // 3
+    dialog.geometry(f"{width}x{height}+{x}+{y}")
 
-#  Kachel-Ansicht
 
 
-class CardView(ctk.CTkScrollableFrame):
-    def __init__(self, master, vm):
+class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
+    def __init__(self, master, vm, sidebar):
         super().__init__(master, fg_color="transparent")
         self.vm = vm
+        self.sidebar = sidebar
         self.card_items = {}   # Kachel → Eintrag
         self.drag = {"item": None, "start_y": 0, "active": False, "target": None}
         vm.subscribe(self.refresh)   # bei jeder Änderung neu zeichnen
@@ -69,39 +88,68 @@ class CardView(ctk.CTkScrollableFrame):
         card = ctk.CTkFrame(self, fg_color=CARD, corner_radius=8)
         card.pack(fill="x", padx=4, pady=4)
 
-        ctk.CTkButton(
-            card, text="✕", width=28, height=28,
-            fg_color="transparent", hover_color=CARD_HOVER, text_color=MUTED,
-            command=lambda i=item: self.vm.delete(i),
-        ).pack(side="right", padx=(0, 8))
+        # Spaltenaufteilung: nur die Vorschau wächst, rechts feste Breiten
+        card.grid_columnconfigure(1, weight=1)
+        card.grid_columnconfigure(2, minsize=96)
+        card.grid_columnconfigure(3, minsize=96)
+
+        # Spalte 0: farbiger Streifen der Gruppe
+        stripe = ctk.CTkFrame(card, width=4, height=1, corner_radius=2,
+                              fg_color=self.vm.group_color(item))
+        stripe.grid(row=0, column=0, sticky="ns", padx=(6, 0), pady=8)
+
+        # Spalte 1: Vorschau, verlangt keinen eigenen Platz und wird an der Kante abgeschnitten
+        preview_label = ctk.CTkLabel(card, text=self.vm.preview(item), font=FONT,
+                                     text_color=TEXT, anchor="w", justify="left", width=1)
+        preview_label.grid(row=0, column=1, sticky="ew", padx=(12, 16), pady=10)
+
+        # Spalte 2: Uhrzeit über Datum, rechtsbündig
+        time_box = ctk.CTkFrame(card, fg_color="transparent")
+        time_box.grid(row=0, column=2, sticky="e", padx=(0, 8))
+
+        time_label = ctk.CTkLabel(time_box, text=self.vm.time_text(item), font=FONT_SMALL,
+                                  text_color=TEXT, width=88, height=18, anchor="e")
+        time_label.pack(anchor="e")
+        date_label = ctk.CTkLabel(time_box, text=self.vm.date_text(item), font=FONT_SMALL,
+                                  text_color=MUTED, width=88, height=18, anchor="e")
+        date_label.pack(anchor="e")
+
+        # Spalte 3: Stern und X über dem Gruppennamen, rechtsbündig
+        action_box = ctk.CTkFrame(card, fg_color="transparent")
+        action_box.grid(row=0, column=3, sticky="e", padx=(0, 8))
+
+        buttons = ctk.CTkFrame(action_box, fg_color="transparent")
+        buttons.pack(anchor="e")
 
         ctk.CTkButton(
-            card, text="★" if item.is_favorite else "☆", width=28, height=28,
+            buttons, text="★" if item.is_favorite else "☆", width=28, height=24,
             fg_color="transparent", hover_color=CARD_HOVER,
             text_color=ACCENT if item.is_favorite else MUTED,
             command=lambda i=item: self.vm.toggle_favorite(i),
-        ).pack(side="right")
+        ).pack(side="left")
 
-        preview_label = ctk.CTkLabel(
-            card, text=self.vm.preview(item), font=FONT,
-            text_color=TEXT, anchor="w", justify="left",
-        )
-        preview_label.pack(fill="x", padx=12, pady=(8, 0))
+        ctk.CTkButton(
+            buttons, text="✕", width=28, height=24,
+            fg_color="transparent", hover_color=CARD_HOVER, text_color=MUTED,
+            command=lambda i=item: self.vm.delete(i),
+        ).pack(side="left")
 
-        time_label = ctk.CTkLabel(
-            card, text=self.vm.time_text(item), font=FONT_SMALL,
-            text_color=MUTED, anchor="w",
-        )
-        time_label.pack(fill="x", padx=12, pady=(0, 8))
+        # in Gruppenansichten leer, aber gleich hoch, damit die Kachel nicht springt
+        group_text = self.vm.group_name(item, max_length=12) if self.vm.show_group else ""
+        group_label = ctk.CTkLabel(action_box, text=group_text, font=FONT_SMALL,
+                                   text_color=MUTED, width=96, height=18, anchor="e")
+        group_label.pack(anchor="e")
 
         self.card_items[card] = item
 
-        for widget in (card, preview_label, time_label):
+        # Klick, Ziehen und Hover auf allem außer den Buttons
+        for widget in (card, stripe, preview_label, time_box, time_label, date_label,
+                       action_box, buttons, group_label):
             widget.bind("<ButtonPress-1>", lambda event, i=item: self._on_press(event, i))
             widget.bind("<B1-Motion>", self._on_motion)
             widget.bind("<ButtonRelease-1>", self._on_release)
-            widget.bind("<Enter>", lambda event, c=card: c.configure(fg_color=CARD_HOVER))
-            widget.bind("<Leave>", lambda event, c=card: self._on_card_leave(c))
+            widget.bind("<Enter>", lambda _event, c=card: c.configure(fg_color=CARD_HOVER))
+            widget.bind("<Leave>", lambda _event, c=card: self._on_card_leave(c))
 
     #  Hover 
 
@@ -130,6 +178,12 @@ class CardView(ctk.CTkScrollableFrame):
             card.configure(border_width=2, border_color=ACCENT)
         self.drag["target"] = card
 
+    def _sidebar_target(self, event):
+        row = self.sidebar.find_row(event.x_root, event.y_root)
+        if row is not None and self.sidebar.group_of(row) is None:
+            return None   # "Alle Einträge" ist keine Gruppe
+        return row
+
     def _on_press(self, event, item):
         self.drag.update(item=item, start_y=event.y_root, active=False)
 
@@ -140,11 +194,18 @@ class CardView(ctk.CTkScrollableFrame):
         window = self.winfo_toplevel()
         if not self.drag["active"] and abs(event.y_root - self.drag["start_y"]) > DRAG_THRESHOLD:
             self.drag["active"] = True
-            if self.vm.can_drag:
-                window.configure(cursor="fleur")
+            window.configure(cursor="fleur")
 
-        if self.drag["active"] and self.vm.can_drag:
+        if not self.drag["active"]:
+            return
+
+        sidebar_row = self._sidebar_target(event)
+        self.sidebar.set_highlight(sidebar_row)
+
+        if sidebar_row is None and self.vm.can_drag:
             self._set_drop_target(self._find_card(window.winfo_containing(event.x_root, event.y_root)))
+        else:
+            self._set_drop_target(None)
 
     def _on_release(self, event):
         item = self.drag["item"]
@@ -158,18 +219,23 @@ class CardView(ctk.CTkScrollableFrame):
 
         window = self.winfo_toplevel()
         window.configure(cursor="")
+        sidebar_row = self._sidebar_target(event)
         card = self._find_card(window.winfo_containing(event.x_root, event.y_root))
+        self.sidebar.set_highlight(None)
         self._set_drop_target(None)
         self.drag.update(item=None, active=False, target=None)
 
-        if card is not None:
+        if sidebar_row is not None:
+            self.vm.assign_items_to_group([item], self.sidebar.group_of(sidebar_row))
+        elif card is not None:
             middle = card.winfo_rooty() + card.winfo_height() / 2
             self.vm.move(item, self.card_items[card], after=event.y_root > middle)
 
-class TableView(ctk.CTkFrame):
-    def __init__(self, master, vm):
+class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
+    def __init__(self, master, vm, sidebar):
         super().__init__(master, fg_color="transparent")
         self.vm = vm
+        self.sidebar = sidebar
         self.row_items = {}   # Zeilen-ID → Eintrag
         self.drag = {"item": None, "start_y": 0, "active": False, "target_row": None}
 
@@ -201,6 +267,12 @@ class TableView(ctk.CTkFrame):
     def refresh(self):
         self._apply_style()
 
+        self.tree.configure(displaycolumns=self.vm.visible_columns)
+
+        visible_columns = [column[0] for column in COLUMNS
+                           if column[0] != "group" or self.vm.show_group]
+        self.tree.configure(displaycolumns=visible_columns)
+
         self.tree.delete(*self.tree.get_children())
         self.row_items.clear()
 
@@ -209,6 +281,7 @@ class TableView(ctk.CTkFrame):
                 "☑" if self.vm.is_checked(item) else "☐",
                 self.vm.position(item),
                 self.vm.preview(item, 80),
+                self.vm.group_name(item),
                 self.vm.datetime_text(item),
                 "★" if item.is_favorite else "☆",
             )
@@ -245,7 +318,10 @@ class TableView(ctk.CTkFrame):
 
     def _column_id_at(self, x):
         index = int(self.tree.identify_column(x)[1:]) - 1
-        return COLUMNS[index][0]
+        displayed = self.tree["displaycolumns"]
+        if displayed in ("#all", ("#all",)):
+            displayed = [column[0] for column in COLUMNS]
+        return displayed[index]
 
     def _set_drop_row(self, row_id):
         old = self.drag["target_row"]
@@ -259,6 +335,18 @@ class TableView(ctk.CTkFrame):
 
     def _reset_drag(self):
         self.drag.update(item=None, active=False, target_row=None)
+
+    def _sidebar_target(self, event):
+        row = self.sidebar.find_row(event.x_root, event.y_root)
+        if row is not None and self.sidebar.group_of(row) is None:
+            return None
+        return row
+
+    def _drag_items(self):
+        item = self.drag["item"]
+        if self.vm.is_checked(item):
+            return self.vm.checked_visible()   # markierte Zeile → alle markierten
+        return [item]                          # sonst nur diese eine
 
     # Eingaben 
     def _on_heading_click(self, col_id):
@@ -295,13 +383,20 @@ class TableView(ctk.CTkFrame):
 
         if not self.drag["active"] and abs(event.y - self.drag["start_y"]) > DRAG_THRESHOLD:
             self.drag["active"] = True
-            if self.vm.can_drag:
-                self.tree.configure(cursor="fleur")
+            self.tree.configure(cursor="fleur")
 
-        if self.drag["active"]:
-            if self.vm.can_drag:
-                self._set_drop_row(self.tree.identify_row(event.y) or None)
-            return "break"   # verhindert, dass die Auswahl beim Ziehen mitwandert
+        if not self.drag["active"]:
+            return
+
+        sidebar_row = self._sidebar_target(event)
+        self.sidebar.set_highlight(sidebar_row)
+
+        is_single = len(self._drag_items()) == 1
+        if sidebar_row is None and is_single and self.vm.can_drag:
+            self._set_drop_row(self.tree.identify_row(event.y) or None)
+        else:
+            self._set_drop_row(None)
+        return "break"
 
     def _on_release(self, event):
         item = self.drag["item"]
@@ -309,19 +404,31 @@ class TableView(ctk.CTkFrame):
             return
 
         was_dragging = self.drag["active"]
+        items = self._drag_items()   # VOR dem Zurücksetzen bestimmen
         self.tree.configure(cursor="")
+        sidebar_row = self._sidebar_target(event)
+        self.sidebar.set_highlight(None)
         self._set_drop_row(None)
         self._reset_drag()
 
-        if not was_dragging or not self.vm.can_drag:
-            return   # einfacher Klick: Kopieren läuft über den Doppelklick
+        if not was_dragging:
+            return
+
+        # in eine Gruppe: einer oder mehrere
+        if sidebar_row is not None:
+            self.vm.assign_items_to_group(items, self.sidebar.group_of(sidebar_row))
+            return
+
+        # innerhalb der Liste: nur einzeln und nur in eigener Reihenfolge
+        if len(items) > 1 or not self.vm.can_drag:
+            return
 
         row_id = self.tree.identify_row(event.y)
         if row_id:
             _x, y, _width, height = self.tree.bbox(row_id)
             self.vm.move(item, self.row_items[row_id], after=event.y > y + height / 2)
         elif self.tree.identify_region(event.x, event.y) == "nothing":
-            self.vm.move(item, None)   # unter der letzten Zeile → ans Ende
+            self.vm.move(item, None)
 
     def _on_double_click(self, event):
         if self.tree.identify_region(event.x, event.y) != "cell":
@@ -330,14 +437,200 @@ class TableView(ctk.CTkFrame):
         if row_id and self._column_id_at(event.x) not in ("check", "favorite"):
             self.vm.copy(self.row_items[row_id])   
 
+class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
+    def __init__(self, master, vm):
+        super().__init__(master, width=210, corner_radius=0, fg_color=SIDEBAR)
+        self.pack_propagate(False)
+        self.vm = vm
+        self.row_groups = {}   # Zeile → Gruppe (None = "Alle Einträge")
+        self.highlighted_row = None
+        self.drag = {"group": None, "start_y": 0, "active": False}
+
+        ctk.CTkLabel(self, text="Gruppen", font=FONT_TITLE, text_color=TEXT).pack(
+            anchor="w", padx=16, pady=(14, 8))
+
+        self.list = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.list.pack(fill="both", expand=True, padx=6, pady=(0, 8))
+
+        vm.subscribe(self.refresh)
+
+    # Zeichnen
+
+    def refresh(self):
+        self.row_groups.clear()
+        self.highlighted_row = None
+        for widget in self.list.winfo_children():
+            widget.destroy()
+
+        self._create_row(None, "Alle Einträge", None)
+        default = self.vm.default_group
+        self._create_row(default, default.name, default.color)
+        self._create_add_row()
+
+        ctk.CTkFrame(self.list, height=2, corner_radius=0, fg_color=DIVIDER).pack(
+            fill="x", padx=8, pady=8)
+
+        for group in self.vm.custom_groups:
+            self._create_row(group, group.name, group.color)
+
+    def _create_row(self, group, name, color):
+        is_selected = group is self.vm.selected_group
+        normal_color = SELECTED if is_selected else "transparent"
+
+        row = ctk.CTkFrame(self.list, corner_radius=6, border_width=0, fg_color=normal_color)
+        row.pack(fill="x", pady=1)
+
+        dot = ctk.CTkFrame(row, width=10, height=10, corner_radius=5,
+                           fg_color=color if color else "transparent")
+        dot.pack(side="left", padx=(10, 8), pady=10)
+
+        name_label = ctk.CTkLabel(row, text=name, font=FONT, text_color=TEXT, anchor="w")
+        name_label.pack(side="left", fill="x", expand=True)
+
+        count_label = ctk.CTkLabel(row, text=str(self.vm.group_count(group)),
+                                   font=FONT_SMALL, text_color=MUTED)
+        count_label.pack(side="right", padx=(0, 10))
+
+        self.row_groups[row] = group
+
+        for widget in (row, dot, name_label, count_label):
+            widget.bind("<ButtonPress-1>", lambda event, g=group: self._on_press(event, g))
+            widget.bind("<B1-Motion>", self._on_motion)
+            widget.bind("<ButtonRelease-1>", self._on_release)
+            widget.bind("<Enter>", lambda _event, r=row, s=is_selected: self._on_row_enter(r, s))
+            widget.bind("<Leave>", lambda _event, r=row, c=normal_color: self._on_row_leave(r, c))
+            if self._is_custom(group):
+                widget.bind("<Button-3>", lambda event, g=group: self._on_group_menu(event, g))
+
+    def _create_add_row(self):
+        ctk.CTkButton(
+            self.list, text="＋  Neue Gruppe", anchor="w", height=32, font=FONT,
+            fg_color="transparent", hover_color=SIDEBAR_HOVER, text_color=MUTED,
+            command=self._on_add_group,
+        ).pack(fill="x", pady=(4, 0))
+
+    # Hover
+
+    def _on_row_enter(self, row, is_selected):
+        if not is_selected:
+            row.configure(fg_color=SIDEBAR_HOVER)
+
+    def _on_row_leave(self, row, normal_color):
+        x, y = row.winfo_pointerxy()
+        widget = row.winfo_containing(x, y)
+        if widget is None or not str(widget).startswith(str(row)):
+            row.configure(fg_color=normal_color)
+
+    # Für Drag & Drop, auch von den anderen Ansichten benutzt
+
+    def find_row(self, x_root, y_root):
+        widget = self.winfo_containing(x_root, y_root)
+        while widget is not None:
+            if widget in self.row_groups:
+                return widget
+            widget = widget.master
+        return None
+
+    def group_of(self, row):
+        return self.row_groups[row]
+
+    def set_highlight(self, row):
+        old = self.highlighted_row
+        if old is row:
+            return
+        if old is not None and old.winfo_exists():
+            old.configure(border_width=0)
+        if row is not None:
+            row.configure(border_width=2, border_color=ACCENT)
+        self.highlighted_row = row
+
+    def _is_custom(self, group):
+        return group is not None and group is not self.vm.default_group
+
+    # Eigene Gruppen verschieben
+
+    def _on_press(self, event, group):
+        self.drag.update(group=group, start_y=event.y_root, active=False)
+
+    def _on_motion(self, event):
+        group = self.drag["group"]
+        if not self._is_custom(group):
+            return   # "Alle Einträge" und "Unsortiert" lassen sich nicht ziehen
+
+        if not self.drag["active"] and abs(event.y_root - self.drag["start_y"]) > DRAG_THRESHOLD:
+            self.drag["active"] = True
+            self.winfo_toplevel().configure(cursor="fleur")
+
+        if self.drag["active"]:
+            row = self.find_row(event.x_root, event.y_root)
+            if row is not None and not self._is_custom(self.row_groups[row]):
+                row = None   # nur eigene Gruppen sind Ziele
+            self.set_highlight(row)
+
+    def _on_release(self, event):
+        group = self.drag["group"]
+        was_dragging = self.drag["active"]
+        self.drag.update(group=None, active=False)
+
+        if not was_dragging:
+            self.vm.select_group(group)   # kein Ziehen → Klick
+            return
+
+        self.winfo_toplevel().configure(cursor="")
+        row = self.find_row(event.x_root, event.y_root)
+        self.set_highlight(None)
+
+        if row is None or not self._is_custom(self.row_groups[row]):
+            return
+
+        middle = row.winfo_rooty() + row.winfo_height() / 2
+        self.vm.move_group(group, self.row_groups[row], after=event.y_root > middle)
+
+    # Gruppen anlegen und löschen
+
+    def _on_add_group(self):
+        window = self.winfo_toplevel()
+
+        dialog = ctk.CTkInputDialog(title="Neue Gruppe", text="Name der neuen Gruppe:")
+        place_near(dialog, window)
+        name = dialog.get_input()
+        if name is None:
+            return
+
+        color = colorchooser.askcolor(title="Farbe der Gruppe wählen",
+                                      parent=window)[1] or DEFAULT_GROUP_COLOR
+
+        try:
+            group = self.vm.add_group(name, color)
+        except ValueError as error:
+            messagebox.showwarning("Neue Gruppe", str(error), parent=window)
+            return
+
+        self.vm.select_group(group)
+
+    def _on_group_menu(self, event, group):
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label=f"„{group.name}“ löschen",
+                         command=lambda: self._delete_group(group))
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _delete_group(self, group):
+        if messagebox.askyesno(
+            "Gruppe löschen",
+            f"Gruppe „{group.name}“ löschen?\nIhre Einträge wandern nach „{self.vm.default_group.name}“.",
+            parent=self.winfo_toplevel(),
+        ):
+            self.vm.remove_group(group)
+
 #  Verknüpfung: Daten, ViewModel, Service
 
 
-history = ClipboardHistory()
+history = ClipboardHistory()   
+if LOAD_DEMO_DATA:
+    load_demo_data(history)
 vm = ClipboardViewModel(history)
 service = ClipboardService(vm.receive_text)
 vm.service = service
-
 
 #  Hauptfenster
 
@@ -347,6 +640,7 @@ def refresh_header():
     clear_button.configure(text=vm.clear_button_text)
     direction_button.configure(text="↓" if vm.descending else "↑")
     sort_menu.set(SORT_LABELS[vm.sort_by])
+    title_lable.configure(text=vm.title_text)
 
     count = vm.checked_count
     delete_checked_button.configure(text=f"Markierte löschen ({count})",
@@ -356,11 +650,11 @@ def refresh_header():
 def on_clear_click():
     count = vm.deletable_count()
     if count == 0:
-        messagebox.showinfo("Löschen", "Keine Einträge zum Löschen. Favoriten werden nicht gelöscht.")
+        messagebox.showinfo("Löschen", "Keine Einträge zum Löschen. Favoriten werden nicht gelöscht.", parent=root)
         return
 
     text = "1 Eintrag" if count == 1 else f"{count} Einträge"
-    if not messagebox.askyesno("Löschen", f"{text} löschen?\nFavoriten bleiben erhalten."):
+    if not messagebox.askyesno("Löschen", f"{text} löschen?\nFavoriten bleiben erhalten.", parent=root):
         return
 
     vm.delete_visible()
@@ -380,7 +674,7 @@ def on_favorites_toggle():
 def on_delete_checked():
         count = vm.checked_count
         text = "1 Eintrag" if count == 1 else f"{count} Einträge"
-        if messagebox.askyesno("Markierte löschen", f"{text} endgültig löschen?"):
+        if messagebox.askyesno("Markierte löschen", f"{text} endgültig löschen?", parent=root):
             vm.delete_checked()
 
 def on_view_change(choice):
@@ -406,6 +700,12 @@ def on_view_change(choice):
         card_view.pack(fill="both", expand=True, padx=12, before=hint_label)
         hint_label.configure(text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)")
 
+def toggle_sidebar():
+    if sidebar.winfo_ismapped():
+        sidebar.pack_forget()
+    else:
+        sidebar.pack(side="left", fill="y", before=main_area)
+
 
 def poll_incoming():
     vm.process_incoming()
@@ -415,14 +715,28 @@ def poll_incoming():
 
 root = ctk.CTk()
 root.title("Zwischenablagen Manager")
-root.geometry("820x520")
 root.minsize(560, 420)
+root.bind("<Control-b>", lambda event: toggle_sidebar())
+
+root.geometry("1000x560")
+
+sidebar = GroupSidebar(root, vm)
+sidebar.pack(side="left", fill="y")
+
+main_area = ctk.CTkFrame(root, fg_color="transparent")
+main_area.pack(side="left", fill="both", expand=True)
 
 # Kopfzeile
-header = ctk.CTkFrame(root, fg_color="transparent")
+header = ctk.CTkFrame(main_area, fg_color="transparent")
 header.pack(fill="x", padx=16, pady=(14, 8))
 
-ctk.CTkLabel(header, text="Zwischenablage", font=FONT_TITLE).pack(side="left")
+sidebar_button = ctk.CTkButton(header, text="☰", width=32, height=28, font=FONT,
+                               fg_color="transparent", hover_color=SELECTED,
+                               text_color=TEXT, command=toggle_sidebar)
+sidebar_button.pack(side="left", padx=(0, 8))
+
+title_lable = ctk.CTkLabel(header, text="", font=FONT_TITLE)
+title_lable.pack(side="left")
 
 view_switch = ctk.CTkSegmentedButton(header, values=["Kacheln", "Tabelle"],
                                      font=FONT_SMALL, command=on_view_change)
@@ -437,7 +751,7 @@ count_label = ctk.CTkLabel(header, text="", font=FONT_SMALL, text_color=MUTED)
 count_label.pack(side="right", padx=(0, 10))
 
 # Werkzeugleiste
-toolbar = ctk.CTkFrame(root, fg_color="transparent")
+toolbar = ctk.CTkFrame(main_area, fg_color="transparent")
 toolbar.pack(fill="x", padx=16, pady=(0, 8))
 
 search_entry = ctk.CTkEntry(toolbar, placeholder_text="Suchen …", font=FONT_SMALL)
@@ -468,13 +782,13 @@ delete_checked_button = ctk.CTkButton(table_controls, text="Markierte löschen",
 delete_checked_button.pack()
 
 # Ansicht
-card_view = CardView(root, vm)
+card_view = CardView(main_area, vm, sidebar)
 card_view.pack(fill="both", expand=True, padx=12)
 
-table_view = TableView(root, vm)   # wird erst beim Umschalten angezeigt
+table_view = TableView(main_area, vm, sidebar)   # wird erst beim Umschalten angezeigt
 
 hint_label = ctk.CTkLabel(
-    root, text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)",
+    main_area, text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)",
     font=FONT_SMALL, text_color=MUTED,
     )   
 hint_label.pack(fill="x", padx=16, pady=(8, 12))
@@ -485,6 +799,7 @@ vm.subscribe(refresh_header)
 card_view.refresh()
 table_view.refresh()
 refresh_header()
+sidebar.refresh()
 
 threading.Thread(target=service.start, daemon=True).start()
 root.after(100, poll_incoming)

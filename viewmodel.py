@@ -1,13 +1,17 @@
 import queue
+from datetime import date, timedelta
 
-PREVIEW_LENGTH = 60
+PREVIEW_LENGTH = 80
+# Spalten der Tabelle in ihrer Reihenfolge; Überschriften und Breiten stehen in gui.py
+TABLE_COLUMNS = ("check", "position", "content", "group", "time", "favorite")
 
 
 class ClipboardViewModel:
     def __init__(self, history):
         self.history = history
         self.service = None   
-        self.checked = set()          # markierte Einträge
+        self.checked = set()            # markierte Einträge
+        self.selected_group = None          
 
         # Zustand der Ansicht
         self.sort_by = "priority"
@@ -46,6 +50,7 @@ class ClipboardViewModel:
 
     def get_visible_items(self):
         return self.history.get_history(
+            group=self.selected_group,
             sort_by=self.sort_by,
             descending=self.descending,
             search=self.search,
@@ -82,7 +87,7 @@ class ClipboardViewModel:
 
     @property
     def is_filtering(self):
-        return bool(self.search) or self.favorites_only
+        return bool(self.search) or self.favorites_only or self.selected_group is not None
 
     @property
     def can_drag(self):
@@ -95,7 +100,11 @@ class ClipboardViewModel:
 
     @property
     def empty_text(self):
-        return "Keine Treffer" if self.is_filtering else "Noch nichts kopiert"
+        if self.search or self.favorites_only:
+            return "Keine Treffer"
+        if self.selected_group is not None:
+            return "Keine Einträge in dieser Gruppe"
+        return "Noch nichts kopiert"
 
     @property
     def clear_button_text(self):
@@ -105,15 +114,66 @@ class ClipboardViewModel:
         return len([item for item in self.get_visible_items() if not item.is_favorite])
 
     @staticmethod
-    def preview(item, max_length=PREVIEW_LENGTH):
-        text = " ".join(item.content.split())
+    def _shorten(text, max_length):
+        text = " ".join(text.split())
         if len(text) > max_length:
             text = text[:max_length - 1] + "…"
         return text
 
     @staticmethod
+    def preview(item, max_length=PREVIEW_LENGTH):
+        return ClipboardViewModel._shorten(item.content, max_length)
+
+    @staticmethod
+    def group_name(item, max_length=None):
+        name = item.clipboard_group.name if item.clipboard_group else ""
+        if max_length:
+            return ClipboardViewModel._shorten(name, max_length)
+        return name
+
+    @staticmethod
+    def group_color(item):
+        return item.clipboard_group.color if item.clipboard_group else "#9e9e9e"
+
+    @staticmethod
+    def date_text(item):
+        day = item.created_at.date()
+        today = date.today()
+        if day == today:
+            return "Heute"
+        if day == today - timedelta(days=1):
+            return "Gestern"
+        return day.strftime("%d.%m.%Y")
+
+    @property
+    def show_group(self):
+        # Gruppenname nur in "Alle Einträge" anzeigen
+        return self.selected_group is None
+
+    @property
+    def visible_columns(self):
+        # vorerst nur die automatische Regel, später auch Benutzereinstellungen
+        return [column for column in TABLE_COLUMNS if column != "group" or self.show_group]
+
+    @staticmethod
     def time_text(item):
         return item.created_at.strftime("%H:%M")
+
+    @property
+    def default_group(self):
+        return self.history.default_group
+
+    @property
+    def custom_groups(self):
+        return [group for group in self.history.groups if group is not self.history.default_group]
+
+    def group_count(self, group):
+        # None zählt alle Einträge
+        return len(self.history.get_history(group=group))
+
+    @property
+    def title_text(self):
+        return self.selected_group.name if self.selected_group else "Alle Einträge"
 
     # Ansicht
 
@@ -187,4 +247,37 @@ class ClipboardViewModel:
         for item in self.checked_visible():
             self.history.remove_item(item)
         self._prune_checked()
+        self._notify()
+
+    def select_group(self, group):
+        self.selected_group = group
+        # Nach Gruppe sortieren ergibt innerhalb einer Gruppe keinen Sinn
+        if group is not None and self.sort_by == "group":
+            self.sort_by = "priority"
+            self.descending = False
+        self._notify()
+
+    def add_group(self, name, color):
+        name = name.strip()
+        if not name:
+            raise ValueError("Bitte einen Namen eingeben.")
+        group = self.history.add_group(name, color)
+        self._notify()
+        return group
+
+    def remove_group(self, group):
+        self.history.remove_group(group)
+        if self.selected_group is group:
+            self.selected_group = None   # gelöschte Gruppe kann nicht ausgewählt bleiben
+        self._notify()
+
+    def assign_items_to_group(self, items, group):
+        # rückwärts, damit die Reihenfolge der Einträge erhalten bleibt
+        for item in reversed(items):
+            self.history.assign_item_to_group(item, group)
+        self.checked -= set(items)
+        self._notify()
+
+    def move_group(self, group, target, after=False):
+        self.history.move_group(group, target, after=after)
         self._notify()

@@ -5,7 +5,7 @@ from datetime import datetime
 class ClipboardHistory:
     def __init__(self):
         self.history = []
-        self.default_group = ClipboardGroup(name="Allgemein")
+        self.default_group = ClipboardGroup(name="Unsortiert")
         self.groups = [self.default_group]
 
     def add_item(self, text):                    
@@ -72,6 +72,14 @@ class ClipboardHistory:
             items = sorted(items, key=lambda item: item.created_at, reverse=descending)
         elif sort_by == "content":
             items = sorted(items, key=lambda item: item.content.lower(), reverse=descending)
+        elif sort_by == "favorite":
+            items = sorted(items, key=lambda item: item.is_favorite, reverse=not descending)
+        elif sort_by == "group":
+            items = sorted(
+                items,
+                key=lambda item: item.clipboard_group.name.lower() if item.clipboard_group else "",
+                reverse=descending,
+            )
         elif descending:
             items.reverse()   # eigene Reihenfolge, umgedreht
 
@@ -122,6 +130,20 @@ class ClipboardHistory:
 
         self.history.remove(item)
         self.history.insert(0, item)
+
+    def move_group(self, group, target, after=False):
+        if group is target or group is self.default_group or target is self.default_group:
+            return
+
+        self.groups.remove(group)
+
+        if target is None:
+            self.groups.append(group)
+        else:
+            index = self.groups.index(target)
+            if after:
+                index += 1
+            self.groups.insert(index, group)
 
         
     def print_history(self):
