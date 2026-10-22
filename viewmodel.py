@@ -125,6 +125,11 @@ class ClipboardViewModel:
         return ClipboardViewModel._shorten(item.content, max_length)
 
     @staticmethod
+    def group_initial(group):
+        name = group.name.strip() if group else ""
+        return name[:1].upper() or "?"
+    
+    @staticmethod
     def group_name(item, max_length=None):
         name = item.clipboard_group.name if item.clipboard_group else ""
         if max_length:
