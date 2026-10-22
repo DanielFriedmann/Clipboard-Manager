@@ -454,6 +454,7 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         self.collapsed = False
         self.row_groups = {}   # Zeile → Gruppe (None = "Alle Einträge")
         self.highlighted_row = None
+        self.list = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0)
         self.drag = {"group": None, "start_y": 0, "active": False}
 
         # Kopf: Umschalter und Titel
@@ -496,10 +497,15 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
             self.configure(width=SIDEBAR_COLLAPSED_WIDTH)
             self.title_label.pack_forget()
             self.settings_button.configure(text="⚙", anchor="center")
+            self.list.pack_configure(padx=3)
+            # Achtung: _scrollbar ist ein internes Feld von CustomTkinter
+            self.list._scrollbar.grid_remove()
         else:
             self.configure(width=SIDEBAR_EXPANDED_WIDTH)
             self.title_label.pack(side="left", padx=(6, 0))
             self.settings_button.configure(text="⚙  Einstellungen", anchor="w")
+            self.list.pack_configure(padx=6)
+            self.list._scrollbar.grid()
 
         self.refresh()
 
@@ -514,8 +520,9 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         self._create_row(default, default.name, default.color)
         self._create_add_row()
 
+        divider_padx = 4 if self.collapsed else 8
         ctk.CTkFrame(self.list, height=2, corner_radius=0, fg_color=DIVIDER).pack(
-            fill="x", padx=8, pady=8)
+            fill="x", padx=divider_padx, pady=8)
 
         for group in self.vm.custom_groups:
             self._create_row(group, group.name, group.color)
@@ -530,7 +537,6 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         # Auswahlbalken links, nur bei der ausgewählten Zeile sichtbar
         bar = ctk.CTkFrame(row, width=3, height=1, corner_radius=2,
                            fg_color=ACCENT if is_selected else "transparent")
-        bar.pack(side="left", fill="y", padx=(2, 0), pady=6)
 
         # Quadrat: "Alle Einträge" mit Symbol, Gruppen mit Anfangsbuchstaben
         if group is None:
@@ -538,20 +544,32 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
                              font=ALL_ICON_FONT)
         else:
             icon = GroupIcon(row, color, self.vm.group_initial(group))
-        icon.pack(side="left", padx=(6, 8), pady=6)
 
-        # Anzahl zuerst packen, damit sie sich ihren Platz rechts reserviert
-        count_label = ctk.CTkLabel(row, text=str(self.vm.group_count(group)),
-                                   font=FONT_SMALL, text_color=MUTED, width=24, anchor="e")
-        count_label.pack(side="right", padx=(4, 10))
+        if self.collapsed:
+            # Balken frei an den linken Rand, nimmt keinen Platz weg
+            bar.place(x=2, rely=0.5, anchor="w", relheight=0.6)
+            # ohne side: pack setzt das Quadrat automatisch in die Mitte
+            icon.pack(pady=6)
+            widgets = (row, bar, icon, icon.label)
+        else:
+            bar.pack(side="left", fill="y", padx=(2, 0), pady=6)
+            icon.pack(side="left", padx=(6, 8), pady=6)
 
-        # Name füllt nur den übrigen Platz und wird notfalls gekürzt
-        name_label = ctk.CTkLabel(row, text=self.vm.sidebar_name(name), width = 1, font=FONT, text_color=TEXT, anchor="w")
-        name_label.pack(side="left", fill="x", expand=True)
+            # Anzahl zuerst packen, damit sie sich ihren Platz rechts reserviert
+            count_label = ctk.CTkLabel(row, text=str(self.vm.group_count(group)),
+                                       font=FONT_SMALL, text_color=MUTED, width=24, anchor="e")
+            count_label.pack(side="right", padx=(4, 10))
+
+            # Name füllt nur den übrigen Platz und wird notfalls gekürzt
+            name_label = ctk.CTkLabel(row, text=self.vm.sidebar_name(name), font=FONT,
+                                      text_color=TEXT, anchor="w", width=1)
+            name_label.pack(side="left", fill="x", expand=True)
+
+            widgets = (row, bar, icon, icon.label, name_label, count_label)
 
         self.row_groups[row] = group
 
-        for widget in (row, bar, icon, icon.label, name_label, count_label):
+        for widget in widgets:
             widget.bind("<ButtonPress-1>", lambda event, g=group: self._on_press(event, g))
             widget.bind("<B1-Motion>", self._on_motion)
             widget.bind("<ButtonRelease-1>", self._on_release)
@@ -564,17 +582,22 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         row = ctk.CTkFrame(self.list, corner_radius=6, fg_color="transparent")
         row.pack(fill="x", pady=(4, 1))
 
-        # Platzhalter in Breite des Auswahlbalkens, damit die Quadrate untereinander stehen
-        spacer = ctk.CTkFrame(row, width=3, height=1, fg_color="transparent")
-        spacer.pack(side="left", padx=(2, 0))
-
         icon = GroupIcon(row, "transparent", "＋", text_color=MUTED)
-        icon.pack(side="left", padx=(6, 8), pady=6)
 
-        label = ctk.CTkLabel(row, text="Neue Gruppe", font=FONT, text_color=MUTED, anchor="w")
-        label.pack(side="left", fill="x", expand=True)
+        if self.collapsed:
+            icon.pack(pady=6)
+            widgets = (row, icon, icon.label)
+        else:
+            # Platzhalter in Breite des Auswahlbalkens, damit die Quadrate untereinander stehen
+            spacer = ctk.CTkFrame(row, width=3, height=1, fg_color="transparent")
+            spacer.pack(side="left", padx=(2, 0))
+            icon.pack(side="left", padx=(6, 8), pady=6)
 
-        for widget in (row, spacer, icon, icon.label, label):
+            label = ctk.CTkLabel(row, text="Neue Gruppe", font=FONT, text_color=MUTED, anchor="w")
+            label.pack(side="left", fill="x", expand=True)
+            widgets = (row, spacer, icon, icon.label, label)
+
+        for widget in widgets:
             widget.bind("<Button-1>", lambda _event: self._on_add_group())
             widget.bind("<Enter>", lambda _event, r=row: self._on_row_enter(r, False))
             widget.bind("<Leave>", lambda _event, r=row: self._on_row_leave(r, "transparent"))
