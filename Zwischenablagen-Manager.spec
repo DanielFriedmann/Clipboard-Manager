@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_data_files
 
-datas = []
+datas = [('icon.ico', '.')]
 datas += collect_data_files('customtkinter')
 
 
@@ -36,6 +36,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['icon.ico'],
 )
 coll = COLLECT(
     exe,

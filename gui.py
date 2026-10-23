@@ -2,6 +2,10 @@ import threading
 import tkinter as tk
 import customtkinter as ctk
 
+import ctypes
+import os
+import sys
+
 
 from demo_data import load_demo_data
 from widgets import GroupIcon, Tooltip
@@ -68,6 +72,11 @@ def place_near(dialog, parent, width=320, height=180):
     x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
     y = parent.winfo_rooty() + (parent.winfo_height() - height) // 3
     dialog.geometry(f"{width}x{height}+{x}+{y}")
+
+def resource_path(filename):
+    # In der .exe liegen mitgelieferte Dateien in einem eigenen Ordner von PyInstaller
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, filename)
 
 
 
@@ -807,10 +816,13 @@ def poll_incoming():
     vm.process_incoming()
     root.after(100, poll_incoming)
 
-
+# Eigene Programmkennung, damit Windows in der Taskleiste unser Symbol zeigt statt das von Python
+ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Abkoo.Zwischenablagen.Manager")
 
 root = ctk.CTk()
 root.title(f"Zwischenablagen Manager  {APP_VERSION}")
+# CustomTkinter setzt kurz nach dem Start ein eigenes Symbol, deshalb mit Verzögerung
+root.after(300, lambda: root.iconbitmap(resource_path("icon.ico")))
 root.minsize(900, 420)
 root.bind("<Control-b>", lambda event: sidebar.toggle_collapsed())
 

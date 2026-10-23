@@ -1,6 +1,5 @@
 ## Erweiterung:
 
-[] Oberfläche optimieren  
 [X] Anpinnen toggle  
 [X] Löschung eines Eintrags  
 [X] Löschung von allen ungepinnten Einträgen
@@ -11,10 +10,9 @@
 [X] Drag and Drop Sortierung in Gruppen    
 [X] Gruppierungen in Farbe   
 [X] Tabellarische Anzeige und Sortierungen  
-[] Always im Vordergrund   
+[] Always im Vordergrund Toggle  
 [X] Priorisierung Anzeigen lassen?       
 [X] Tabellenansicht   
-[] xml   
 [] Stichwort / Schlagwortsuche    
 [X] Branching   
 [] RTF Strukture   
@@ -34,5 +32,10 @@
 [] Fensterposition speichern   
 [] System Schriftart und größe übernehmen  
 [] Nur eine Instanz zulassen vom ClipboardManager  
-[] Performance in der Kachelansicht
-[] Bug bei Skalierung bei wechsel von bildschirm
+[] Performance in der Kachelansicht  
+[] Bug bei Skalierung beim Wechsel von Bildschirm  
+[] Accent auf Smaragd Grün  
+
+## Version 1.0.0 Rollout Review
+--  Einfügen im Clipboard nur mit Doppelklick aus Tabellenansicht - Yay or Nay?  
+--
