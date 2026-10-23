@@ -34,8 +34,9 @@
 [] Nur eine Instanz zulassen vom ClipboardManager  
 [] Performance in der Kachelansicht  
 [] Bug bei Skalierung beim Wechsel von Bildschirm  
-[] Accent auf Smaragd Grün  
+[] Accent auf Smaragd Grün / Farbeinstellung ermöglichen
+[] Einstellungen -> Individualisierbarkeit 
 
 ## Version 1.0.0 Rollout Review
 --  Einfügen im Clipboard nur mit Doppelklick aus Tabellenansicht - Yay or Nay?  
---
+--  Installer verwenden

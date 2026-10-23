@@ -6,7 +6,7 @@ import ctypes
 import os
 import sys
 
-
+from storage import load_history, save_history
 from demo_data import load_demo_data
 from widgets import GroupIcon, Tooltip
 from tkinter import messagebox, ttk, colorchooser
@@ -52,7 +52,7 @@ SORT_OPTIONS = {
 }
 SORT_LABELS = {value: label for label, value in SORT_OPTIONS.items()}   # umgekehrte Richtung
 
-LOAD_DEMO_DATA = False   # beim Starten Demo-Daten laden
+LOAD_DEMO_DATA = True   # beim Starten Demo-Daten laden
 APP_VERSION = "1.0.0"
 
 # (Spalten-ID, Überschrift, Breite, Sortierung oder None)
@@ -735,9 +735,12 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
 #  Verknüpfung: Daten, ViewModel, Service
 
 
-history = ClipboardHistory()   
-if LOAD_DEMO_DATA:
-    load_demo_data(history)
+history = load_history()
+if history is None:
+    # erster Start oder beschädigte Datei: leer beginnen
+    history = ClipboardHistory()
+    if LOAD_DEMO_DATA:
+        load_demo_data(history)
 vm = ClipboardViewModel(history)
 service = ClipboardService(vm.receive_text)
 vm.service = service
@@ -816,6 +819,32 @@ def poll_incoming():
     vm.process_incoming()
     root.after(100, poll_incoming)
 
+SAVE_DELAY = 1000   # Millisekunden Ruhe, bevor gespeichert wird
+pending_save = {"job": None}
+
+
+def save_now():
+    pending_save["job"] = None
+    try:
+        save_history(history)
+    except OSError as error:
+        print(f"Speichern fehlgeschlagen: {error}")
+
+
+def schedule_save():
+    # bei jeder Änderung den Zeitgeber neu starten
+    if pending_save["job"] is not None:
+        root.after_cancel(pending_save["job"])
+    pending_save["job"] = root.after(SAVE_DELAY, save_now)
+
+
+def on_close():
+    # ausstehendes Speichern sofort erledigen, dann schließen
+    if pending_save["job"] is not None:
+        root.after_cancel(pending_save["job"])
+    save_now()
+    root.destroy()
+
 # Eigene Programmkennung, damit Windows in der Taskleiste unser Symbol zeigt statt das von Python
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Abkoo.Zwischenablagen.Manager")
 
@@ -825,6 +854,8 @@ root.title(f"Zwischenablagen Manager  {APP_VERSION}")
 root.after(300, lambda: root.iconbitmap(resource_path("icon.ico")))
 root.minsize(900, 420)
 root.bind("<Control-b>", lambda event: sidebar.toggle_collapsed())
+
+root.protocol("WM_DELETE_WINDOW", on_close)
 
 root.geometry("1000x560")
 
@@ -899,6 +930,7 @@ hint_label.pack(fill="x", padx=16, pady=(8, 12))
 
 # Start
 vm.subscribe(refresh_header)
+vm.subscribe(schedule_save)
 card_view.refresh()
 table_view.refresh()
 refresh_header()
