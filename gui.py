@@ -6,7 +6,8 @@ import ctypes
 import os
 import sys
 
-
+from settings import load_settings, save_settings
+from storage import load_history, save_history
 from demo_data import load_demo_data
 from widgets import GroupIcon, Tooltip
 from tkinter import messagebox, ttk, colorchooser
@@ -41,6 +42,8 @@ FONT_SMALL = ("Segoe UI", 11)
 SIDEBAR_EXPANDED_WIDTH = 210
 SIDEBAR_COLLAPSED_WIDTH = 52
 
+DEFAULT_GEOMETRY = "1000x560"
+
 DRAG_THRESHOLD = 5
 
 SORT_OPTIONS = {
@@ -52,7 +55,7 @@ SORT_OPTIONS = {
 }
 SORT_LABELS = {value: label for label, value in SORT_OPTIONS.items()}   # umgekehrte Richtung
 
-LOAD_DEMO_DATA = False   # beim Starten Demo-Daten laden
+LOAD_DEMO_DATA = True   # beim Starten Demo-Daten laden
 APP_VERSION = "1.0.0"
 
 # (Spalten-ID, Überschrift, Breite, Sortierung oder None)
@@ -77,6 +80,14 @@ def resource_path(filename):
     # In der .exe liegen mitgelieferte Dateien in einem eigenen Ordner von PyInstaller
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, filename)
+
+class POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+def is_on_screen(x, y):
+    # 0 bedeutet: an dieser Stelle gibt es keinen Monitor
+    return bool(ctypes.windll.user32.MonitorFromPoint(POINT(x, y), 0))
 
 
 
@@ -734,10 +745,13 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
 
 #  Verknüpfung: Daten, ViewModel, Service
 
-
-history = ClipboardHistory()   
-if LOAD_DEMO_DATA:
-    load_demo_data(history)
+settings = load_settings()
+history = load_history()
+if history is None:
+    # erster Start oder beschädigte Datei: leer beginnen
+    history = ClipboardHistory()
+    if LOAD_DEMO_DATA:
+        load_demo_data(history)
 vm = ClipboardViewModel(history)
 service = ClipboardService(vm.receive_text)
 vm.service = service
@@ -756,7 +770,6 @@ def refresh_header():
     delete_checked_button.configure(text=f"Markierte löschen ({count})",
                                     state="normal" if count else "disabled")
 
-
 def on_clear_click():
     count = vm.deletable_count()
     if count == 0:
@@ -769,14 +782,11 @@ def on_clear_click():
 
     vm.delete_visible()
 
-
 def on_search_change(_event):
     vm.set_search(search_entry.get())
 
-
 def on_sort_change(choice):
     vm.set_sort(SORT_OPTIONS[choice])
-
 
 def on_favorites_toggle():
     vm.set_favorites_only(favorites_switch.get() == 1)
@@ -810,11 +820,68 @@ def on_view_change(choice):
         card_view.pack(fill="both", expand=True, padx=12, before=hint_label)
         hint_label.configure(text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)")
 
+def restore_window():
+
+    #print("Nach dem Start:", root.geometry())
+
+    # CustomTkinter setzt die Größe beim ersten Anzeigen zurück, deshalb erneut setzen
+    if settings["window_geometry"]:
+        root.geometry(settings["window_geometry"])
+
+    # liegt die linke obere Ecke auf keinem Bildschirm, Fenster neu platzieren
+    if not is_on_screen(root.winfo_rootx() + 40, root.winfo_rooty() + 10):
+        root.geometry(f"{DEFAULT_GEOMETRY}+100+100")
+    if settings["window_maximized"]:
+        root.state("zoomed")
+    # erst nach dem ersten Anzeigen einklappen, sonst blendet CustomTkinter die Scrollbar wieder ein
+    if settings["sidebar_collapsed"] and not sidebar.collapsed:
+        sidebar.toggle_collapsed()
 
 
 def poll_incoming():
     vm.process_incoming()
     root.after(100, poll_incoming)
+
+SAVE_DELAY = 1000   # Millisekunden Ruhe, bevor gespeichert wird
+pending_save = {"job": None}
+
+
+def save_now():
+    pending_save["job"] = None
+    try:
+        save_history(history)
+    except OSError as error:
+        print(f"Speichern fehlgeschlagen: {error}")
+
+def schedule_save():
+    # bei jeder Änderung den Zeitgeber neu starten
+    if pending_save["job"] is not None:
+        root.after_cancel(pending_save["job"])
+    pending_save["job"] = root.after(SAVE_DELAY, save_now)
+
+def on_close():
+    # ausstehendes Speichern sofort erledigen
+    if pending_save["job"] is not None:
+        root.after_cancel(pending_save["job"])
+    save_now()
+
+    # Einstellungen festhalten
+
+    #print("Beim Schließen:", root.geometry(), root.state())
+    
+    settings["window_maximized"] = root.state() == "zoomed"
+    if not settings["window_maximized"]:
+        # bei maximiertem Fenster die letzte normale Größe behalten
+        settings["window_geometry"] = root.geometry()
+    settings["sidebar_collapsed"] = sidebar.collapsed
+    settings["view"] = view_switch.get()
+    settings["selected_group"] = vm.selected_group_id
+    try:
+        save_settings(settings)
+    except OSError as error:
+        print(f"Einstellungen konnten nicht gespeichert werden: {error}")
+
+    root.destroy()
 
 # Eigene Programmkennung, damit Windows in der Taskleiste unser Symbol zeigt statt das von Python
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Abkoo.Zwischenablagen.Manager")
@@ -826,7 +893,11 @@ root.after(300, lambda: root.iconbitmap(resource_path("icon.ico")))
 root.minsize(900, 420)
 root.bind("<Control-b>", lambda event: sidebar.toggle_collapsed())
 
-root.geometry("1000x560")
+root.protocol("WM_DELETE_WINDOW", on_close)
+
+root.geometry(settings["window_geometry"] or DEFAULT_GEOMETRY)
+
+#print("Gesetzt:", settings["window_geometry"])
 
 sidebar = GroupSidebar(root, vm)
 sidebar.pack(side="left", fill="y")
@@ -899,10 +970,18 @@ hint_label.pack(fill="x", padx=16, pady=(8, 12))
 
 # Start
 vm.subscribe(refresh_header)
+vm.subscribe(schedule_save)
 card_view.refresh()
 table_view.refresh()
 refresh_header()
 sidebar.refresh()
+
+# gespeicherte Einstellungen anwenden
+if settings["view"] in ("Kacheln", "Tabelle"):
+    vm.select_group_by_id(settings["selected_group"])
+    view_switch.set(settings["view"])
+    on_view_change(settings["view"])
+root.after(300, restore_window)
 
 threading.Thread(target=service.start, daemon=True).start()
 root.after(100, poll_incoming)

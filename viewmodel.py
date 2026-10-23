@@ -273,6 +273,15 @@ class ClipboardViewModel:
             self.descending = False
         self._notify()
 
+    def select_group_by_id(self, group_id):
+        # unbekannte oder fehlende ID → "Alle Einträge"
+        group = next((g for g in self.history.groups if g.id == group_id), None)
+        self.select_group(group)
+
+    @property
+    def selected_group_id(self):
+        return self.selected_group.id if self.selected_group else None
+
     def add_group(self, name, color):
         name = name.strip()
         if not name:

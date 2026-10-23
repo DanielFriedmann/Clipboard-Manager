@@ -28,3 +28,7 @@ print(f"A vor A:     {order(h)}   (erwartet: A B C D)")
 h = build(); arbeit = h.add_group("Arbeit")
 h.assign_item_to_group(find(h, "C"), arbeit)
 print(f"C → Arbeit:  {order(h)}   (erwartet: C A B D)")
+
+a = h.add_group("Test A")
+b = h.add_group("Test B")
+print(a.id, b.id, a.id != b.id, "   (erwartet: zwei verschiedene IDs, True)")
