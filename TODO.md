@@ -41,3 +41,4 @@
 --  Einfügen im Clipboard nur mit Doppelklick aus Tabellenansicht - Yay or Nay?   
 --  Installer verwenden  (auch für Updates)
 --  Bei Neustart aktuelle Ansicht merken (Gruppe)  
+--  Spaltenbreite merken und Ansicht (Tabellenspalten usw.)  

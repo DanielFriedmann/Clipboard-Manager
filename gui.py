@@ -44,6 +44,9 @@ FONT_SMALL = ("Segoe UI", 11)
 SIDEBAR_EXPANDED_WIDTH = 210
 SIDEBAR_COLLAPSED_WIDTH = 52
 
+NARROW_BELOW = 740   # unter dieser Fensterbreite schmaler Modus
+WIDE_ABOVE = 780     # über dieser Breite wieder breiter Modus
+
 DEFAULT_GEOMETRY = "1000x560"
 
 DRAG_THRESHOLD = 5
@@ -86,12 +89,11 @@ def resource_path(filename):
 class POINT(ctypes.Structure):
     _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
 
-
 def is_on_screen(x, y):
     # 0 bedeutet: an dieser Stelle gibt es keinen Monitor
     return bool(ctypes.windll.user32.MonitorFromPoint(POINT(x, y), 0))
 
-
+#  Klassen für Ansichten
 
 class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
     def __init__(self, master, vm, sidebar):
@@ -760,19 +762,25 @@ vm.service = service
 
 #  Hauptfenster
 
-
 def refresh_header():
-    title_label.configure(text=vm.title_text)
+    narrow = layout["narrow"]
+
+    title = vm.title_text
+    title_label.configure(text=vm.sidebar_name(title, 14) if narrow else title)
     count_label.configure(text=vm.count_text)
-    clear_button.configure(text=vm.clear_button_text)
+    clear_button.configure(text="Löschen" if narrow else vm.clear_button_text,
+                           width=80 if narrow else 130)
 
     # aktiver Favoriten-Filter soll auch bei geschlossenem Menü sichtbar sein
     filter_button.configure(fg_color=ACCENT if vm.favorites_only else ("#d0d0d0", "#3a3a3a"),
                             text_color="white" if vm.favorites_only else TEXT)
 
     count = vm.checked_count
-    delete_checked_button.configure(text=f"Markierte löschen ({count})",
-                                    state="normal" if count else "disabled")
+    delete_checked_button.configure(
+        text=f"Löschen ({count})" if narrow else f"Markierte löschen ({count})",
+        width=100 if narrow else 170,
+        state="normal" if count else "disabled",
+    )
 
 def on_clear_click():
     count = vm.deletable_count()
@@ -843,29 +851,73 @@ def on_view_change(choice):
         hint_label.configure(text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)")
 
 def restore_window():
-
-    #print("Nach dem Start:", root.geometry())
-
     # CustomTkinter setzt die Größe beim ersten Anzeigen zurück, deshalb erneut setzen
     if settings["window_geometry"]:
         root.geometry(settings["window_geometry"])
-
     # liegt die linke obere Ecke auf keinem Bildschirm, Fenster neu platzieren
     if not is_on_screen(root.winfo_rootx() + 40, root.winfo_rooty() + 10):
         root.geometry(f"{DEFAULT_GEOMETRY}+100+100")
     if settings["window_maximized"]:
         root.state("zoomed")
     # erst nach dem ersten Anzeigen einklappen, sonst blendet CustomTkinter die Scrollbar wieder ein
-    if settings["sidebar_collapsed"] and not sidebar.collapsed:
-        sidebar.toggle_collapsed()
+    if settings["sidebar_collapsed"]:
+        layout["auto_collapsed"] = False
+        if not sidebar.collapsed:
+            sidebar.toggle_collapsed()
+
+    # ab jetzt auf Größenänderungen reagieren
+    root.bind("<Configure>", check_layout, add="+")
+    check_layout()
 
 def poll_incoming():
     vm.process_incoming()
     root.after(100, poll_incoming)
 
+def window_width():
+    # CustomTkinter liefert die Größe bereits ohne Bildschirmskalierung
+    return int(root.geometry().split("x")[0])
+
+
+def check_layout(_event=None):
+    width = window_width()
+    if not layout["narrow"] and width < NARROW_BELOW:
+        apply_layout(True)
+    elif layout["narrow"] and width > WIDE_ABOVE:
+        apply_layout(False)
+
+
+def apply_layout(narrow):
+    layout["narrow"] = narrow
+
+    # Seitenleiste automatisch ein- bzw. wieder ausklappen
+    if narrow and not sidebar.collapsed:
+        sidebar.toggle_collapsed()
+        layout["auto_collapsed"] = True
+    elif not narrow and layout["auto_collapsed"]:
+        if sidebar.collapsed:
+            sidebar.toggle_collapsed()
+        layout["auto_collapsed"] = False
+
+    # Anzahl nur im breiten Modus
+    if narrow:
+        count_label.grid_remove()
+    else:
+        count_label.grid()
+
+    refresh_header()
+
+
+def on_sidebar_toggle():
+    # von Hand umgeschaltet: der automatische Zustand gilt nicht mehr
+    layout["auto_collapsed"] = False
+    sidebar.toggle_collapsed()
+
+#  Daten
+
 SAVE_DELAY = 1000   # Millisekunden Ruhe, bevor gespeichert wird
 pending_save = {"job": None}
 current_view = {"name": "Kacheln"}
+layout = {"narrow": False, "auto_collapsed": False}
 
 
 def save_now():
@@ -895,7 +947,7 @@ def on_close():
     if not settings["window_maximized"]:
         # bei maximiertem Fenster die letzte normale Größe behalten
         settings["window_geometry"] = root.geometry()
-    settings["sidebar_collapsed"] = sidebar.collapsed
+    settings["sidebar_collapsed"] = sidebar.collapsed and not layout["auto_collapsed"]
     settings["view"] = current_view["name"]
     settings["selected_group"] = vm.selected_group_id
     try:
@@ -905,15 +957,15 @@ def on_close():
 
     root.destroy()
 
-# Eigene Programmkennung, damit Windows in der Taskleiste unser Symbol zeigt statt das von Python
+#  Eigene Programmkennung, damit Windows in der Taskleiste unser Symbol zeigt statt das von Python
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Abkoo.Zwischenablagen.Manager")
 
 root = ctk.CTk()
 root.title(f"Zwischenablagen Manager  {APP_VERSION}")
 # CustomTkinter setzt kurz nach dem Start ein eigenes Symbol, deshalb mit Verzögerung
 root.after(300, lambda: root.iconbitmap(resource_path("icon.ico")))
-root.minsize(900, 420)
-root.bind("<Control-b>", lambda event: sidebar.toggle_collapsed())
+root.minsize(450, 420)
+root.bind("<Control-b>", lambda _event: on_sidebar_toggle())
 
 root.protocol("WM_DELETE_WINDOW", on_close)
 
@@ -923,6 +975,7 @@ root.geometry(settings["window_geometry"] or DEFAULT_GEOMETRY)
 
 sidebar = GroupSidebar(root, vm)
 sidebar.pack(side="left", fill="y")
+sidebar.toggle_button.configure(command=on_sidebar_toggle)
 
 main_area = ctk.CTkFrame(root, fg_color="transparent")
 main_area.pack(side="left", fill="both", expand=True)
