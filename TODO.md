@@ -38,6 +38,6 @@
 [] Einstellungen -> Individualisierbarkeit  
 
 ## Version 1.0.0 Rollout Review
---  Einfügen im Clipboard nur mit Doppelklick aus Tabellenansicht - Yay or Nay?  
---  Installer verwenden
--- Bei Neustart aktuelle Ansicht merken (Gruppe)
+--  Einfügen im Clipboard nur mit Doppelklick aus Tabellenansicht - Yay or Nay?   
+--  Installer verwenden  
+--  Bei Neustart aktuelle Ansicht merken (Gruppe)  
