@@ -36,6 +36,7 @@
 [] Bug bei Skalierung beim Wechsel von Bildschirm  
 [] Accent auf Smaragd Grün / Farbeinstellung ermöglichen  
 [] Einstellungen -> Individualisierbarkeit  
+[] Einstellungen -> automatische Updates Toggle  
 
 ## Version 1.0.0 Rollout Review
 --  Einfügen im Clipboard nur mit Doppelklick aus Tabellenansicht - Yay or Nay?   

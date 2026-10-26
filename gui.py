@@ -74,6 +74,8 @@ COLUMNS = [
     ("favorite", "★", 40, "favorite"),
 ]
 
+COMPACT_COLUMNS = ("check", "content", "favorite")   # Spalten im schmalen Modus
+
 def place_near(dialog, parent, width=320, height=180):
     # Dialog mit fester Größe über dem Elternfenster platzieren
     parent.update_idletasks()
@@ -269,6 +271,7 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
     def __init__(self, master, vm, sidebar):
         super().__init__(master, fg_color="transparent")
         self.vm = vm
+        self.compact = False
         self.sidebar = sidebar
         self.row_items = {}   # Zeilen-ID → Eintrag
         self.drag = {"item": None, "start_y": 0, "active": False, "target_row": None}
@@ -281,7 +284,8 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
         for col_id, title, width, _sort_key in COLUMNS:
             self.tree.heading(col_id, text=title,
                               command=lambda c=col_id: self._on_heading_click(c))
-            self.tree.column(col_id, width=width, stretch=(col_id == "content"),
+            self.tree.column(col_id, width=width, minwidth=100 if col_id == "content" else width,
+                             stretch=(col_id == "content"),
                              anchor="w" if col_id == "content" else "center")
 
         scrollbar = ctk.CTkScrollbar(self, command=self.tree.yview)
@@ -303,9 +307,10 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
 
         self.tree.configure(displaycolumns=self.vm.visible_columns)
 
-        visible_columns = [column[0] for column in COLUMNS
-                           if column[0] != "group" or self.vm.show_group]
-        self.tree.configure(displaycolumns=visible_columns)
+        visible = self.vm.visible_columns
+        if self.compact:
+            visible = [column for column in visible if column in COMPACT_COLUMNS]
+        self.tree.configure(displaycolumns=visible)
 
         self.tree.delete(*self.tree.get_children())
         self.row_items.clear()
@@ -329,6 +334,10 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
             elif sort_key == self.vm.sort_by:
                 text += " ▼" if self.vm.descending else " ▲"
             self.tree.heading(col_id, text=text)
+
+    def set_compact(self, compact):
+        self.compact = compact
+        self.refresh()
 
     def _apply_style(self):
         dark = ctk.get_appearance_mode() == "Dark"
@@ -840,14 +849,14 @@ def on_view_change(choice):
         clear_button.grid_remove()
 
         table_controls.pack(side="right", padx=(8, 0), before=filter_button)
-        table_view.pack(fill="both", expand=True, padx=12, before=hint_label)
+        table_view.pack(fill="both", expand=True, padx=12)
         hint_label.configure(text="Doppelklick zum Kopieren · Ziehen zum Sortieren · Spaltenkopf zum Sortieren · ☐ zum Markieren")
     else:
         table_view.pack_forget()
         table_controls.pack_forget()
 
         clear_button.grid()
-        card_view.pack(fill="both", expand=True, padx=12, before=hint_label)
+        card_view.pack(fill="both", expand=True, padx=12)
         hint_label.configure(text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)")
 
 def restore_window():
@@ -877,14 +886,13 @@ def window_width():
     # CustomTkinter liefert die Größe bereits ohne Bildschirmskalierung
     return int(root.geometry().split("x")[0])
 
-
 def check_layout(_event=None):
+    # root.title(f"Breite {window_width()}") # Zum messen
     width = window_width()
     if not layout["narrow"] and width < NARROW_BELOW:
         apply_layout(True)
     elif layout["narrow"] and width > WIDE_ABOVE:
         apply_layout(False)
-
 
 def apply_layout(narrow):
     layout["narrow"] = narrow
@@ -904,8 +912,14 @@ def apply_layout(narrow):
     else:
         count_label.grid()
 
-    refresh_header()
+    # Tabelle kompakter, Hinweistext nur im breiten Modus
+    table_view.set_compact(narrow)
+    if narrow:
+        hint_label.pack_forget()
+    else:
+        hint_label.pack(side="bottom", fill="x", padx=16, pady=(8, 12))
 
+    refresh_header()
 
 def on_sidebar_toggle():
     # von Hand umgeschaltet: der automatische Zustand gilt nicht mehr
@@ -964,7 +978,7 @@ root = ctk.CTk()
 root.title(f"Zwischenablagen Manager  {APP_VERSION}")
 # CustomTkinter setzt kurz nach dem Start ein eigenes Symbol, deshalb mit Verzögerung
 root.after(300, lambda: root.iconbitmap(resource_path("icon.ico")))
-root.minsize(450, 420)
+root.minsize(420, 420)
 root.bind("<Control-b>", lambda _event: on_sidebar_toggle())
 
 root.protocol("WM_DELETE_WINDOW", on_close)
@@ -1041,7 +1055,7 @@ hint_label = ctk.CTkLabel(
     main_area, text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)",
     font=FONT_SMALL, text_color=MUTED,
     )   
-hint_label.pack(fill="x", padx=16, pady=(8, 12))
+hint_label.pack(side="bottom", fill="x", padx=16, pady=(8, 12))
 
 
 # Start
