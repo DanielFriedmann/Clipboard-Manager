@@ -30,6 +30,8 @@ SELECTED = ("#dbe7f6", "#33415c")
 DIVIDER = ("#d0d0d0", "#3a3a3a")
 DEFAULT_GROUP_COLOR = "#9e9e9e"
 SIDEBAR_HOVER = ("#dedede", "#2c2c2c")
+SWITCH_BG = ("#e2e2e2", "#333333")    
+SWITCH_HOVER = ("#d0d0d0", "#404040")   
 
 ALL_ICON_COLOR = ("#d0d0d0", "#4a4a4a")
 ALL_ICON_SYMBOL = "≡"
@@ -809,7 +811,6 @@ def open_filter_menu():
     y = filter_button.winfo_rooty() + filter_button.winfo_height()
     menu.tk_popup(x, y)
 
-
 def on_delete_checked():
         count = vm.checked_count
         text = "1 Eintrag" if count == 1 else f"{count} Einträge"
@@ -817,9 +818,18 @@ def on_delete_checked():
             vm.delete_checked()
 
 def on_view_change(choice):
+    current_view["name"] = choice
+
+    # aktives Feld hervorheben
+    for name, button in view_buttons.items():
+        active = name == choice
+        button.configure(fg_color=ACCENT if active else "transparent",
+                         hover_color=ACCENT if active else SWITCH_HOVER,
+                         text_color="white" if active else TEXT)
+
     if choice == "Tabelle":
         card_view.pack_forget()
-        clear_button.pack_forget()
+        clear_button.grid_remove()
 
         table_controls.pack(side="right", padx=(8, 0), before=filter_button)
         table_view.pack(fill="both", expand=True, padx=12, before=hint_label)
@@ -828,7 +838,7 @@ def on_view_change(choice):
         table_view.pack_forget()
         table_controls.pack_forget()
 
-        clear_button.pack(side="right", before=count_label)
+        clear_button.grid()
         card_view.pack(fill="both", expand=True, padx=12, before=hint_label)
         hint_label.configure(text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)")
 
@@ -855,6 +865,7 @@ def poll_incoming():
 
 SAVE_DELAY = 1000   # Millisekunden Ruhe, bevor gespeichert wird
 pending_save = {"job": None}
+current_view = {"name": "Kacheln"}
 
 
 def save_now():
@@ -885,7 +896,7 @@ def on_close():
         # bei maximiertem Fenster die letzte normale Größe behalten
         settings["window_geometry"] = root.geometry()
     settings["sidebar_collapsed"] = sidebar.collapsed
-    settings["view"] = view_switch.get()
+    settings["view"] = current_view["name"]
     settings["selected_group"] = vm.selected_group_id
     try:
         save_settings(settings)
@@ -916,24 +927,36 @@ sidebar.pack(side="left", fill="y")
 main_area = ctk.CTkFrame(root, fg_color="transparent")
 main_area.pack(side="left", fill="both", expand=True)
 
-# Kopfzeile
+# Kopfzeile: Titel, Ansicht, (freie Spalte), Anzahl, Löschen
 header = ctk.CTkFrame(main_area, fg_color="transparent")
 header.pack(fill="x", padx=16, pady=(14, 8))
+header.grid_columnconfigure(2, weight=1)   # leere Spalte schiebt Anzahl und Button nach rechts
 
-title_label = ctk.CTkLabel(header, text="", font=FONT_TITLE)
-title_label.pack(side="left")
+title_label = ctk.CTkLabel(header, text="", font=FONT_TITLE, anchor="w")
+title_label.grid(row=0, column=0, sticky="w")
 
-view_switch = ctk.CTkSegmentedButton(header, values=["Kacheln", "Tabelle"],
-                                     font=FONT_SMALL, command=on_view_change)
-view_switch.set("Kacheln")
-view_switch.pack(side="left", padx=(16, 0))
+# Segment-Schalter: gemeinsamer Hintergrund, aktives Feld farbig
+view_box = ctk.CTkFrame(header, fg_color=SWITCH_BG, corner_radius=8)
+view_box.grid(row=0, column=1, padx=(16, 0))
+
+view_buttons = {}
+views = (("Kacheln", "▤"), ("Tabelle", "▦"))
+for index, (name, icon) in enumerate(views):
+    button = ctk.CTkButton(view_box, text=icon, width=30, height=22, corner_radius=6,
+                           font=("Segoe UI Symbol", 13), fg_color="transparent",
+                           hover_color=SWITCH_HOVER, text_color=TEXT,
+                           command=lambda n=name: on_view_change(n))
+    last = index == len(views) - 1
+    button.pack(side="left", padx=(3, 3 if last else 0), pady=3)
+    Tooltip(button, name)
+    view_buttons[name] = button
+
+count_label = ctk.CTkLabel(header, text="", font=FONT_SMALL, text_color=MUTED)
+count_label.grid(row=0, column=3, padx=(0, 10))
 
 clear_button = ctk.CTkButton(header, text="Alle löschen", width=130, height=28,
                              font=FONT_SMALL, command=on_clear_click)
-clear_button.pack(side="right")
-
-count_label = ctk.CTkLabel(header, text="", font=FONT_SMALL, text_color=MUTED)
-count_label.pack(side="right", padx=(0, 10))
+clear_button.grid(row=0, column=4)
 
 # Werkzeugleiste
 toolbar = ctk.CTkFrame(main_area, fg_color="transparent")
@@ -979,8 +1002,8 @@ sidebar.refresh()
 # gespeicherte Einstellungen anwenden
 if settings["view"] in ("Kacheln", "Tabelle"):
     vm.select_group_by_id(settings["selected_group"])
-    view_switch.set(settings["view"])
-    on_view_change(settings["view"])
+    view = settings["view"] if settings["view"] in view_buttons else "Kacheln"
+    on_view_change(view)
 root.after(300, restore_window)
 
 threading.Thread(target=service.start, daemon=True).start()

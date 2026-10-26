@@ -28,8 +28,8 @@
 [] Ein Ausblendbare Spalten Tabellenansicht   
 [X] Heute / Gestern QoL improvement  
 [] Code Refaktorierung / Cleanen  
-[] Speicherung  
-[] Fensterposition speichern   
+[X] Speicherung  
+[X] Fensterposition speichern   
 [] System Schriftart und größe übernehmen  
 [] Nur eine Instanz zulassen vom ClipboardManager  
 [] Performance in der Kachelansicht  
@@ -39,5 +39,5 @@
 
 ## Version 1.0.0 Rollout Review
 --  Einfügen im Clipboard nur mit Doppelklick aus Tabellenansicht - Yay or Nay?   
---  Installer verwenden  
+--  Installer verwenden  (auch für Updates)
 --  Bei Neustart aktuelle Ansicht merken (Gruppe)  
