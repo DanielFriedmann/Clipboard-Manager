@@ -40,6 +40,9 @@
 
 ## Version 1.0.0 Rollout Review
 --  Einfügen im Clipboard nur mit Doppelklick aus Tabellenansicht - Yay or Nay?   
---  Installer verwenden  (auch für Updates)
+--  Installer verwenden  (auch für Updates)  
 --  Bei Neustart aktuelle Ansicht merken (Gruppe)  
 --  Spaltenbreite merken und Ansicht (Tabellenspalten usw.)  
+--  Sicherheitskonzept (Anmeldung, Kommunikation, Datensicherung)  
+--  API / Microservices  
+-- Passwort ändern
