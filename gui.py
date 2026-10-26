@@ -62,9 +62,10 @@ SORT_OPTIONS = {
 }
 SORT_LABELS = {value: label for label, value in SORT_OPTIONS.items()}   # umgekehrte Richtung
 
-LOAD_DEMO_DATA = True   # beim Starten Demo-Daten laden
-APP_VERSION = "1.0.0"
+LOAD_DEMO_DATA = False   # beim Starten Demo-Daten laden
+APP_VERSION = "1.1.0"
 APP_TITLE = f"Zwischenablagen Manager  {APP_VERSION}"
+APP_ID = "B5A469AA-EA94-4DAE-BFEB-B00931C8C895"
 
 # (Spalten-ID, Überschrift, Breite, Sortierung oder None)
 # Verknüpft mit Table Columns in viewmodel.py, die Reihenfolge muss übereinstimmen
