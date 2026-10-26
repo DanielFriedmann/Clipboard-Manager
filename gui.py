@@ -6,6 +6,8 @@ import ctypes
 import os
 import sys
 
+import single_instance
+
 from settings import load_settings, save_settings
 from storage import load_history, save_history
 from demo_data import load_demo_data
@@ -62,6 +64,7 @@ SORT_LABELS = {value: label for label, value in SORT_OPTIONS.items()}   # umgeke
 
 LOAD_DEMO_DATA = True   # beim Starten Demo-Daten laden
 APP_VERSION = "1.0.0"
+APP_TITLE = f"Zwischenablagen Manager  {APP_VERSION}"
 
 # (Spalten-ID, Überschrift, Breite, Sortierung oder None)
 # Verknüpft mit Table Columns in viewmodel.py, die Reihenfolge muss übereinstimmen
@@ -758,6 +761,10 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
 
 #  Verknüpfung: Daten, ViewModel, Service
 
+# nur eine Instanz: sonst laufendes Fenster nach vorne holen und beenden
+if not single_instance.acquire():
+    single_instance.bring_to_front(APP_TITLE)
+    sys.exit(0)
 settings = load_settings()
 history = load_history()
 if history is None:
@@ -975,7 +982,7 @@ def on_close():
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Abkoo.Zwischenablagen.Manager")
 
 root = ctk.CTk()
-root.title(f"Zwischenablagen Manager  {APP_VERSION}")
+root.title(APP_TITLE)
 # CustomTkinter setzt kurz nach dem Start ein eigenes Symbol, deshalb mit Verzögerung
 root.after(300, lambda: root.iconbitmap(resource_path("icon.ico")))
 root.minsize(420, 420)
