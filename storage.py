@@ -9,6 +9,16 @@ APP_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Clip
 DATA_FILE = os.path.join(APP_DIR, "data.json")
 DATA_VERSION = 1
 
+VAULT_FILE = os.path.join(APP_DIR, "vault.json")
+VAULT_VERSION = 2
+
+def _write_json_atomic(path, content):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temp_path = path + ".tmp"
+    with open(temp_path, "w", encoding="utf-8") as file:
+        json.dump(content, file, ensure_ascii=False, indent=2)
+    os.replace(temp_path, path)
+
 
 # Umwandeln: Verlauf -> Dictionary
 
@@ -70,16 +80,11 @@ def history_from_dict(data):
 # Datei schreiben und lesen
 
 def save_history(history, path=DATA_FILE):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    temp_path = path + ".tmp"
-
-    # erst vollständig in eine Hilfsdatei schreiben, dann austauschen
-    with open(temp_path, "w", encoding="utf-8") as file:
-        json.dump(history_to_dict(history), file, ensure_ascii=False, indent=2)
-    os.replace(temp_path, path)
+    _write_json_atomic(path, history_to_dict(history))
 
 
 def load_history(path=DATA_FILE):
+
     # None bedeutet: keine brauchbare Datei vorhanden
     if not os.path.exists(path):
         return None
@@ -93,3 +98,37 @@ def load_history(path=DATA_FILE):
         os.replace(path, f"{path}.defekt-{stamp}")
         print(f"Datendatei beschädigt und umbenannt: {error}")
         return None
+
+# Verschlüsselte Datei
+
+def read_vault_file(path=VAULT_FILE):
+    # None, wenn es noch keinen Tresor gibt
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as file:
+        return json.load(file)
+
+
+def load_encrypted(content, vault):
+    plain = vault.decrypt(content["payload"])
+    return history_from_dict(json.loads(plain.decode("utf-8")))
+
+
+def save_encrypted(history, vault, path=VAULT_FILE):
+    plain = json.dumps(history_to_dict(history), ensure_ascii=False).encode("utf-8")
+    _write_json_atomic(path, {
+        "version": VAULT_VERSION,
+        "vault": vault.header,
+        "payload": vault.encrypt(plain),
+    })
+
+
+# Übernahme der unverschlüsselten Datei aus Version 1.1
+
+def load_legacy():
+    return load_history(DATA_FILE)   # None, wenn es keine alte Datei gibt
+
+
+def remove_legacy():
+    if os.path.exists(DATA_FILE):
+        os.remove(DATA_FILE)
