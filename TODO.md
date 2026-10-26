@@ -28,16 +28,18 @@
 [] Ein Ausblendbare Spalten Tabellenansicht   
 [X] Heute / Gestern QoL improvement  
 [] Code Refaktorierung / Cleanen  
-[] Speicherung  
-[] Fensterposition speichern   
+[X] Speicherung  
+[X] Fensterposition speichern   
 [] System Schriftart und größe übernehmen  
 [] Nur eine Instanz zulassen vom ClipboardManager  
 [] Performance in der Kachelansicht  
 [] Bug bei Skalierung beim Wechsel von Bildschirm  
 [] Accent auf Smaragd Grün / Farbeinstellung ermöglichen  
 [] Einstellungen -> Individualisierbarkeit  
+[] Einstellungen -> automatische Updates Toggle  
 
 ## Version 1.0.0 Rollout Review
---  Einfügen im Clipboard nur mit Doppelklick aus Tabellenansicht - Yay or Nay?  
---  Installer verwenden
--- Bei Neustart aktuelle Ansicht merken (Gruppe)
+--  Einfügen im Clipboard nur mit Doppelklick aus Tabellenansicht - Yay or Nay?   
+--  Installer verwenden  (auch für Updates)
+--  Bei Neustart aktuelle Ansicht merken (Gruppe)  
+--  Spaltenbreite merken und Ansicht (Tabellenspalten usw.)  

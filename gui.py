@@ -30,6 +30,8 @@ SELECTED = ("#dbe7f6", "#33415c")
 DIVIDER = ("#d0d0d0", "#3a3a3a")
 DEFAULT_GROUP_COLOR = "#9e9e9e"
 SIDEBAR_HOVER = ("#dedede", "#2c2c2c")
+SWITCH_BG = ("#e2e2e2", "#333333")    
+SWITCH_HOVER = ("#d0d0d0", "#404040")   
 
 ALL_ICON_COLOR = ("#d0d0d0", "#4a4a4a")
 ALL_ICON_SYMBOL = "≡"
@@ -41,6 +43,9 @@ FONT_SMALL = ("Segoe UI", 11)
 
 SIDEBAR_EXPANDED_WIDTH = 210
 SIDEBAR_COLLAPSED_WIDTH = 52
+
+NARROW_BELOW = 740   # unter dieser Fensterbreite schmaler Modus
+WIDE_ABOVE = 780     # über dieser Breite wieder breiter Modus
 
 DEFAULT_GEOMETRY = "1000x560"
 
@@ -69,6 +74,8 @@ COLUMNS = [
     ("favorite", "★", 40, "favorite"),
 ]
 
+COMPACT_COLUMNS = ("check", "content", "favorite")   # Spalten im schmalen Modus
+
 def place_near(dialog, parent, width=320, height=180):
     # Dialog mit fester Größe über dem Elternfenster platzieren
     parent.update_idletasks()
@@ -84,12 +91,11 @@ def resource_path(filename):
 class POINT(ctypes.Structure):
     _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
 
-
 def is_on_screen(x, y):
     # 0 bedeutet: an dieser Stelle gibt es keinen Monitor
     return bool(ctypes.windll.user32.MonitorFromPoint(POINT(x, y), 0))
 
-
+#  Klassen für Ansichten
 
 class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
     def __init__(self, master, vm, sidebar):
@@ -265,6 +271,7 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
     def __init__(self, master, vm, sidebar):
         super().__init__(master, fg_color="transparent")
         self.vm = vm
+        self.compact = False
         self.sidebar = sidebar
         self.row_items = {}   # Zeilen-ID → Eintrag
         self.drag = {"item": None, "start_y": 0, "active": False, "target_row": None}
@@ -277,7 +284,8 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
         for col_id, title, width, _sort_key in COLUMNS:
             self.tree.heading(col_id, text=title,
                               command=lambda c=col_id: self._on_heading_click(c))
-            self.tree.column(col_id, width=width, stretch=(col_id == "content"),
+            self.tree.column(col_id, width=width, minwidth=100 if col_id == "content" else width,
+                             stretch=(col_id == "content"),
                              anchor="w" if col_id == "content" else "center")
 
         scrollbar = ctk.CTkScrollbar(self, command=self.tree.yview)
@@ -299,9 +307,10 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
 
         self.tree.configure(displaycolumns=self.vm.visible_columns)
 
-        visible_columns = [column[0] for column in COLUMNS
-                           if column[0] != "group" or self.vm.show_group]
-        self.tree.configure(displaycolumns=visible_columns)
+        visible = self.vm.visible_columns
+        if self.compact:
+            visible = [column for column in visible if column in COMPACT_COLUMNS]
+        self.tree.configure(displaycolumns=visible)
 
         self.tree.delete(*self.tree.get_children())
         self.row_items.clear()
@@ -325,6 +334,10 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
             elif sort_key == self.vm.sort_by:
                 text += " ▼" if self.vm.descending else " ▲"
             self.tree.heading(col_id, text=text)
+
+    def set_compact(self, compact):
+        self.compact = compact
+        self.refresh()
 
     def _apply_style(self):
         dark = ctk.get_appearance_mode() == "Dark"
@@ -758,17 +771,25 @@ vm.service = service
 
 #  Hauptfenster
 
-
 def refresh_header():
+    narrow = layout["narrow"]
+
+    title = vm.title_text
+    title_label.configure(text=vm.sidebar_name(title, 14) if narrow else title)
     count_label.configure(text=vm.count_text)
-    clear_button.configure(text=vm.clear_button_text)
-    direction_button.configure(text="↓" if vm.descending else "↑")
-    sort_menu.set(SORT_LABELS[vm.sort_by])
-    title_lable.configure(text=vm.title_text)
+    clear_button.configure(text="Löschen" if narrow else vm.clear_button_text,
+                           width=80 if narrow else 130)
+
+    # aktiver Favoriten-Filter soll auch bei geschlossenem Menü sichtbar sein
+    filter_button.configure(fg_color=ACCENT if vm.favorites_only else ("#d0d0d0", "#3a3a3a"),
+                            text_color="white" if vm.favorites_only else TEXT)
 
     count = vm.checked_count
-    delete_checked_button.configure(text=f"Markierte löschen ({count})",
-                                    state="normal" if count else "disabled")
+    delete_checked_button.configure(
+        text=f"Löschen ({count})" if narrow else f"Markierte löschen ({count})",
+        width=100 if narrow else 170,
+        state="normal" if count else "disabled",
+    )
 
 def on_clear_click():
     count = vm.deletable_count()
@@ -785,11 +806,27 @@ def on_clear_click():
 def on_search_change(_event):
     vm.set_search(search_entry.get())
 
-def on_sort_change(choice):
-    vm.set_sort(SORT_OPTIONS[choice])
+def open_filter_menu():
+    menu = tk.Menu(root, tearoff=0)
 
-def on_favorites_toggle():
-    vm.set_favorites_only(favorites_switch.get() == 1)
+    # Variablen am Menü festhalten, sonst räumt Python sie zu früh weg
+    menu.sort_var = tk.StringVar(value=vm.sort_by)
+    menu.descending_var = tk.BooleanVar(value=vm.descending)
+    menu.favorites_var = tk.BooleanVar(value=vm.favorites_only)
+
+    for label, key in SORT_OPTIONS.items():
+        menu.add_radiobutton(label=label, value=key, variable=menu.sort_var,
+                             command=lambda k=key: vm.set_sort(k))
+    menu.add_separator()
+    menu.add_checkbutton(label="Absteigend", variable=menu.descending_var,
+                         command=vm.toggle_direction)
+    menu.add_checkbutton(label="Nur Favoriten", variable=menu.favorites_var,
+                         command=lambda: vm.set_favorites_only(menu.favorites_var.get()))
+
+    # direkt unter dem Button öffnen
+    x = filter_button.winfo_rootx()
+    y = filter_button.winfo_rooty() + filter_button.winfo_height()
+    menu.tk_popup(x, y)
 
 def on_delete_checked():
         count = vm.checked_count
@@ -798,52 +835,103 @@ def on_delete_checked():
             vm.delete_checked()
 
 def on_view_change(choice):
+    current_view["name"] = choice
+
+    # aktives Feld hervorheben
+    for name, button in view_buttons.items():
+        active = name == choice
+        button.configure(fg_color=ACCENT if active else "transparent",
+                         hover_color=ACCENT if active else SWITCH_HOVER,
+                         text_color="white" if active else TEXT)
+
     if choice == "Tabelle":
         card_view.pack_forget()
-        card_controls.pack_forget()
-        clear_button.pack_forget()
+        clear_button.grid_remove()
 
-        # versteckten Filter nicht weiterwirken lassen
-        if vm.favorites_only:
-            favorites_switch.deselect()
-            vm.set_favorites_only(False)
-
-        table_controls.pack(side="right")
-        table_view.pack(fill="both", expand=True, padx=12, before=hint_label)
+        table_controls.pack(side="right", padx=(8, 0), before=filter_button)
+        table_view.pack(fill="both", expand=True, padx=12)
         hint_label.configure(text="Doppelklick zum Kopieren · Ziehen zum Sortieren · Spaltenkopf zum Sortieren · ☐ zum Markieren")
     else:
         table_view.pack_forget()
         table_controls.pack_forget()
 
-        card_controls.pack(side="right")
-        clear_button.pack(side="right", before=count_label)
-        card_view.pack(fill="both", expand=True, padx=12, before=hint_label)
+        clear_button.grid()
+        card_view.pack(fill="both", expand=True, padx=12)
         hint_label.configure(text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)")
 
 def restore_window():
-
-    #print("Nach dem Start:", root.geometry())
-
     # CustomTkinter setzt die Größe beim ersten Anzeigen zurück, deshalb erneut setzen
     if settings["window_geometry"]:
         root.geometry(settings["window_geometry"])
-
     # liegt die linke obere Ecke auf keinem Bildschirm, Fenster neu platzieren
     if not is_on_screen(root.winfo_rootx() + 40, root.winfo_rooty() + 10):
         root.geometry(f"{DEFAULT_GEOMETRY}+100+100")
     if settings["window_maximized"]:
         root.state("zoomed")
     # erst nach dem ersten Anzeigen einklappen, sonst blendet CustomTkinter die Scrollbar wieder ein
-    if settings["sidebar_collapsed"] and not sidebar.collapsed:
-        sidebar.toggle_collapsed()
+    if settings["sidebar_collapsed"]:
+        layout["auto_collapsed"] = False
+        if not sidebar.collapsed:
+            sidebar.toggle_collapsed()
 
+    # ab jetzt auf Größenänderungen reagieren
+    root.bind("<Configure>", check_layout, add="+")
+    check_layout()
 
 def poll_incoming():
     vm.process_incoming()
     root.after(100, poll_incoming)
 
+def window_width():
+    # CustomTkinter liefert die Größe bereits ohne Bildschirmskalierung
+    return int(root.geometry().split("x")[0])
+
+def check_layout(_event=None):
+    # root.title(f"Breite {window_width()}") # Zum messen
+    width = window_width()
+    if not layout["narrow"] and width < NARROW_BELOW:
+        apply_layout(True)
+    elif layout["narrow"] and width > WIDE_ABOVE:
+        apply_layout(False)
+
+def apply_layout(narrow):
+    layout["narrow"] = narrow
+
+    # Seitenleiste automatisch ein- bzw. wieder ausklappen
+    if narrow and not sidebar.collapsed:
+        sidebar.toggle_collapsed()
+        layout["auto_collapsed"] = True
+    elif not narrow and layout["auto_collapsed"]:
+        if sidebar.collapsed:
+            sidebar.toggle_collapsed()
+        layout["auto_collapsed"] = False
+
+    # Anzahl nur im breiten Modus
+    if narrow:
+        count_label.grid_remove()
+    else:
+        count_label.grid()
+
+    # Tabelle kompakter, Hinweistext nur im breiten Modus
+    table_view.set_compact(narrow)
+    if narrow:
+        hint_label.pack_forget()
+    else:
+        hint_label.pack(side="bottom", fill="x", padx=16, pady=(8, 12))
+
+    refresh_header()
+
+def on_sidebar_toggle():
+    # von Hand umgeschaltet: der automatische Zustand gilt nicht mehr
+    layout["auto_collapsed"] = False
+    sidebar.toggle_collapsed()
+
+#  Daten
+
 SAVE_DELAY = 1000   # Millisekunden Ruhe, bevor gespeichert wird
 pending_save = {"job": None}
+current_view = {"name": "Kacheln"}
+layout = {"narrow": False, "auto_collapsed": False}
 
 
 def save_now():
@@ -873,8 +961,8 @@ def on_close():
     if not settings["window_maximized"]:
         # bei maximiertem Fenster die letzte normale Größe behalten
         settings["window_geometry"] = root.geometry()
-    settings["sidebar_collapsed"] = sidebar.collapsed
-    settings["view"] = view_switch.get()
+    settings["sidebar_collapsed"] = sidebar.collapsed and not layout["auto_collapsed"]
+    settings["view"] = current_view["name"]
     settings["selected_group"] = vm.selected_group_id
     try:
         save_settings(settings)
@@ -883,15 +971,15 @@ def on_close():
 
     root.destroy()
 
-# Eigene Programmkennung, damit Windows in der Taskleiste unser Symbol zeigt statt das von Python
+#  Eigene Programmkennung, damit Windows in der Taskleiste unser Symbol zeigt statt das von Python
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Abkoo.Zwischenablagen.Manager")
 
 root = ctk.CTk()
 root.title(f"Zwischenablagen Manager  {APP_VERSION}")
 # CustomTkinter setzt kurz nach dem Start ein eigenes Symbol, deshalb mit Verzögerung
 root.after(300, lambda: root.iconbitmap(resource_path("icon.ico")))
-root.minsize(900, 420)
-root.bind("<Control-b>", lambda event: sidebar.toggle_collapsed())
+root.minsize(420, 420)
+root.bind("<Control-b>", lambda _event: on_sidebar_toggle())
 
 root.protocol("WM_DELETE_WINDOW", on_close)
 
@@ -901,28 +989,41 @@ root.geometry(settings["window_geometry"] or DEFAULT_GEOMETRY)
 
 sidebar = GroupSidebar(root, vm)
 sidebar.pack(side="left", fill="y")
+sidebar.toggle_button.configure(command=on_sidebar_toggle)
 
 main_area = ctk.CTkFrame(root, fg_color="transparent")
 main_area.pack(side="left", fill="both", expand=True)
 
-# Kopfzeile
+# Kopfzeile: Titel, Ansicht, (freie Spalte), Anzahl, Löschen
 header = ctk.CTkFrame(main_area, fg_color="transparent")
 header.pack(fill="x", padx=16, pady=(14, 8))
+header.grid_columnconfigure(2, weight=1)   # leere Spalte schiebt Anzahl und Button nach rechts
 
-title_lable = ctk.CTkLabel(header, text="", font=FONT_TITLE)
-title_lable.pack(side="left")
+title_label = ctk.CTkLabel(header, text="", font=FONT_TITLE, anchor="w")
+title_label.grid(row=0, column=0, sticky="w")
 
-view_switch = ctk.CTkSegmentedButton(header, values=["Kacheln", "Tabelle"],
-                                     font=FONT_SMALL, command=on_view_change)
-view_switch.set("Kacheln")
-view_switch.pack(side="left", padx=(16, 0))
+# Segment-Schalter: gemeinsamer Hintergrund, aktives Feld farbig
+view_box = ctk.CTkFrame(header, fg_color=SWITCH_BG, corner_radius=8)
+view_box.grid(row=0, column=1, padx=(16, 0))
+
+view_buttons = {}
+views = (("Kacheln", "▤"), ("Tabelle", "▦"))
+for index, (name, icon) in enumerate(views):
+    button = ctk.CTkButton(view_box, text=icon, width=30, height=22, corner_radius=6,
+                           font=("Segoe UI Symbol", 13), fg_color="transparent",
+                           hover_color=SWITCH_HOVER, text_color=TEXT,
+                           command=lambda n=name: on_view_change(n))
+    last = index == len(views) - 1
+    button.pack(side="left", padx=(3, 3 if last else 0), pady=3)
+    Tooltip(button, name)
+    view_buttons[name] = button
+
+count_label = ctk.CTkLabel(header, text="", font=FONT_SMALL, text_color=MUTED)
+count_label.grid(row=0, column=3, padx=(0, 10))
 
 clear_button = ctk.CTkButton(header, text="Alle löschen", width=130, height=28,
                              font=FONT_SMALL, command=on_clear_click)
-clear_button.pack(side="right")
-
-count_label = ctk.CTkLabel(header, text="", font=FONT_SMALL, text_color=MUTED)
-count_label.pack(side="right", padx=(0, 10))
+clear_button.grid(row=0, column=4)
 
 # Werkzeugleiste
 toolbar = ctk.CTkFrame(main_area, fg_color="transparent")
@@ -932,23 +1033,12 @@ search_entry = ctk.CTkEntry(toolbar, placeholder_text="Suchen …", font=FONT_SM
 search_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
 search_entry.bind("<KeyRelease>", on_search_change)
 
-# --- nur in der Kachel-Ansicht ---
-card_controls = ctk.CTkFrame(toolbar, fg_color="transparent")
-card_controls.pack(side="right")
+filter_button = ctk.CTkButton(toolbar, text="⇅", width=32, height=28,
+                              font=("Segoe UI Symbol", 14), command=open_filter_menu)
+filter_button.pack(side="right")
+Tooltip(filter_button, "Sortieren und filtern")
 
-favorites_switch = ctk.CTkSwitch(card_controls, text="Nur Favoriten", font=FONT_SMALL,
-                                 command=on_favorites_toggle)
-favorites_switch.pack(side="right")
-
-direction_button = ctk.CTkButton(card_controls, text="↑", width=32, height=28,
-                                 font=FONT_SMALL, command=vm.toggle_direction)
-direction_button.pack(side="right", padx=(0, 12))
-
-sort_menu = ctk.CTkOptionMenu(card_controls, values=list(SORT_OPTIONS), width=160, height=28,
-                              font=FONT_SMALL, command=on_sort_change)
-sort_menu.pack(side="right", padx=(0, 4))
-
-# --- nur in der Tabellen-Ansicht (noch nicht gepackt) ---
+# nur in der Tabellen-Ansicht (noch nicht gepackt)
 table_controls = ctk.CTkFrame(toolbar, fg_color="transparent")
 
 delete_checked_button = ctk.CTkButton(table_controls, text="Markierte löschen", width=170,
@@ -965,7 +1055,7 @@ hint_label = ctk.CTkLabel(
     main_area, text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)",
     font=FONT_SMALL, text_color=MUTED,
     )   
-hint_label.pack(fill="x", padx=16, pady=(8, 12))
+hint_label.pack(side="bottom", fill="x", padx=16, pady=(8, 12))
 
 
 # Start
@@ -979,8 +1069,8 @@ sidebar.refresh()
 # gespeicherte Einstellungen anwenden
 if settings["view"] in ("Kacheln", "Tabelle"):
     vm.select_group_by_id(settings["selected_group"])
-    view_switch.set(settings["view"])
-    on_view_change(settings["view"])
+    view = settings["view"] if settings["view"] in view_buttons else "Kacheln"
+    on_view_change(view)
 root.after(300, restore_window)
 
 threading.Thread(target=service.start, daemon=True).start()
