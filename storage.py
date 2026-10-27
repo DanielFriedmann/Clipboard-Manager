@@ -3,11 +3,11 @@ import os
 from datetime import datetime
 
 from history import ClipboardHistory
-from models import ClipboardFormat, ClipboardGroup, ClipboardItem
+from models import ClipboardFormat, ClipboardGroup, ClipboardItem, EntryKind, guess_kind
 
 APP_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "ClipboardManager")
 DATA_FILE = os.path.join(APP_DIR, "data.json")
-DATA_VERSION = 1
+DATA_VERSION = 2
 
 VAULT_FILE = os.path.join(APP_DIR, "vault.json")
 VAULT_VERSION = 2
@@ -18,6 +18,18 @@ def _write_json_atomic(path, content):
     with open(temp_path, "w", encoding="utf-8") as file:
         json.dump(content, file, ensure_ascii=False, indent=2)
     os.replace(temp_path, path)
+
+def _kind_from_entry(entry, clipboard_format):
+    # alte Einträge ohne "kind": Links nachträglich erkennen
+    if "kind" not in entry:
+        if clipboard_format == ClipboardFormat.TEXT:
+            return guess_kind(entry["content"])
+        return EntryKind.TEXT
+    # unbekannter Wert, z. B. aus einer neueren Version
+    try:
+        return EntryKind(entry["kind"])
+    except ValueError:
+        return EntryKind.TEXT
 
 
 # Umwandeln: Verlauf -> Dictionary
@@ -32,13 +44,19 @@ def history_to_dict(history):
         ],
         "items": [
             {
+                "id": item.id,
                 "content": item.content,
                 "format": item.clipboard_format.name,
                 "group": item.clipboard_group.id if item.clipboard_group else None,
                 "created_at": item.created_at.isoformat(),
                 "is_favorite": item.is_favorite,
+                "kind": item.kind.value,
+                "title": item.title,
+                "username": item.username,
+                "source_app": item.source_app,
+                "needs_review": item.needs_review,
             }
-            for item in history.history
+            for item in history.history        
         ],
     }
 
@@ -66,13 +84,23 @@ def history_from_dict(data):
 
     # Einträge in gespeicherter Reihenfolge anhängen, nicht über add_item
     for entry in data.get("items", []):
-        history.history.append(ClipboardItem(
-            clipboard_format=ClipboardFormat[entry["format"]],
+        clipboard_format = ClipboardFormat[entry["format"]]
+        item = ClipboardItem(
+            clipboard_format=clipboard_format,
             content=entry["content"],
             clipboard_group=groups_by_id.get(entry.get("group"), default),
             created_at=datetime.fromisoformat(entry["created_at"]),
             is_favorite=entry.get("is_favorite", False),
-        ))
+            kind=_kind_from_entry(entry, clipboard_format),
+            title=entry.get("title"),
+            username=entry.get("username"),
+            source_app=entry.get("source_app"),
+            needs_review=entry.get("needs_review", False),
+        )
+        # alte Einträge ohne ID behalten die neu erzeugte
+        if entry.get("id"):
+            item.id = entry["id"]
+        history.history.append(item)
 
     return history
 
