@@ -55,9 +55,48 @@ def test_unknown_kind_falls_back_to_text():
     assert history_from_dict(data).history[0].kind == EntryKind.TEXT
 
 
+def test_add_password():
+    history = ClipboardHistory()
+    item = history.add_item("geheim", kind=EntryKind.PASSWORD,
+                            source_app="KeePass", needs_review=True)
+
+    assert item.is_password
+    assert item.source_app == "KeePass"
+    assert item.needs_review
+
+
+def test_existing_text_becomes_password():
+    history = ClipboardHistory()
+    history.add_item("geheim")
+    item = history.add_item("geheim", kind=EntryKind.PASSWORD, needs_review=True)
+
+    assert len(history.history) == 1
+    assert item.is_password
+    assert item.needs_review
+
+
+def test_password_keeps_its_data():
+    history = ClipboardHistory()
+    item = history.add_item("geheim", kind=EntryKind.PASSWORD,
+                            source_app="KeePass", needs_review=True)
+    item.title = "VPN-Portal"
+    item.needs_review = False
+
+    # zurückkopiert aus dem eigenen Manager: ohne Quelle, ohne Signal
+    history.add_item("geheim")
+
+    assert item.is_password
+    assert item.title == "VPN-Portal"
+    assert not item.needs_review
+    assert item.source_app == "KeePass"
+
+
 if __name__ == "__main__":
     test_guess_kind()
     test_round_trip_keeps_new_fields()
     test_old_entry_without_new_fields()
     test_unknown_kind_falls_back_to_text()
+    test_add_password()
+    test_existing_text_becomes_password()
+    test_password_keeps_its_data()
     print("alle Tests ok")

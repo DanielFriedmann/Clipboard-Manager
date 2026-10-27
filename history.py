@@ -1,4 +1,4 @@
-from models import ClipboardGroup, ClipboardItem, ClipboardFormat
+from models import ClipboardGroup, ClipboardItem, ClipboardFormat, EntryKind
 from datetime import datetime
 
 
@@ -8,24 +8,29 @@ class ClipboardHistory:
         self.default_group = ClipboardGroup(name="Unsortiert")
         self.groups = [self.default_group]
 
-    def add_item(self, text):                    
-        
-        existing = None
-        for item in self.history:
-            if item.content == text:
-                existing = item
-                break
-        
-        
-        if existing is not None:            
-            existing.created_at = datetime.now()                          
-        else:
-            clipboard_item = ClipboardItem(
-                clipboard_format=ClipboardFormat.TEXT,
-                content=text, 
-                clipboard_group=self.default_group,
-                )
-            self.history.insert(0, clipboard_item) 
+    def add_item(self, text, kind=EntryKind.TEXT, source_app=None, needs_review=False):
+        existing = next((item for item in self.history if item.content == text), None)
+
+        if existing is not None:
+            existing.created_at = datetime.now()
+            # zum Passwort hochstufen, aber nie zurückstufen
+            if kind == EntryKind.PASSWORD and not existing.is_password:
+                existing.kind = EntryKind.PASSWORD
+                existing.needs_review = needs_review
+            if existing.source_app is None:
+                existing.source_app = source_app
+            return existing
+
+        clipboard_item = ClipboardItem(
+            clipboard_format=ClipboardFormat.TEXT,
+            content=text,
+            clipboard_group=self.default_group,
+            kind=kind,
+            source_app=source_app,
+            needs_review=needs_review,
+        )
+        self.history.insert(0, clipboard_item)
+        return clipboard_item
         
         
                 

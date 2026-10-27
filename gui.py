@@ -818,7 +818,7 @@ if login_result["is_new"] and not history.history and LOAD_DEMO_DATA:
     load_demo_data(history)
 
 vm = ClipboardViewModel(history)
-service = ClipboardService(vm.receive_text)
+service = ClipboardService(vm.receive_capture)
 vm.service = service
 
 #  Hauptfenster
