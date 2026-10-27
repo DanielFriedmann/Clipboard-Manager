@@ -9,13 +9,15 @@ import sys
 import single_instance
 
 from settings import load_settings, save_settings
-from storage import load_history, save_history
 from demo_data import load_demo_data
 from widgets import GroupIcon, Tooltip
 from tkinter import messagebox, ttk, colorchooser
 from clipboard_service import ClipboardService
 from history import ClipboardHistory
 from viewmodel import ClipboardViewModel
+
+from login_view import LoginView
+from storage import read_vault_file, save_encrypted
 
 # Erscheinungsbild 
 
@@ -492,7 +494,6 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         self.collapsed = False
         self.row_groups = {}   # Zeile → Gruppe (None = "Alle Einträge")
         self.highlighted_row = None
-        self.list = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0)
         self.drag = {"group": None, "start_y": 0, "active": False}
 
         # Kopf: Umschalter und Titel
@@ -525,7 +526,7 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         Tooltip(self.settings_button, "Einstellungen (folgt)")
 
         # Mitte: scrollbare Liste füllt den Platz dazwischen
-        self.list = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.list = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius = 0)
         self.list.pack(side="top", fill="both", expand=True, padx=6)
 
         vm.subscribe(self.refresh)
@@ -767,12 +768,55 @@ if not single_instance.acquire():
     single_instance.bring_to_front(APP_TITLE)
     sys.exit(0)
 settings = load_settings()
-history = load_history()
-if history is None:
-    # erster Start oder beschädigte Datei: leer beginnen
-    history = ClipboardHistory()
-    if LOAD_DEMO_DATA:
-        load_demo_data(history)
+
+#  Eigene Programmkennung, damit Windows in der Taskleiste unser Symbol zeigt statt das von Python
+ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Abkoo.Zwischenablagen.Manager")
+
+root = ctk.CTk()
+root.title(APP_TITLE)
+# CustomTkinter setzt kurz nach dem Start ein eigenes Symbol, deshalb mit Verzögerung
+root.after(300, lambda: root.iconbitmap(resource_path("icon.ico")))
+root.minsize(420, 420)
+root.geometry(settings["window_geometry"] or DEFAULT_GEOMETRY)
+root.bind("<Control-b>", lambda _event: on_sidebar_toggle())
+
+# Tresor lesen: eine beschädigte Datei wird nie überschrieben
+try:
+    vault_content = read_vault_file()
+except (OSError, ValueError) as error:
+    messagebox.showerror("Zwischenablagen Manager",
+                         "Die Datendatei konnte nicht gelesen werden und wurde nicht verändert.\n\n"
+                         f"{error}", parent=root)
+    root.destroy()
+    sys.exit(1)
+
+# Anmeldung: wartet, bis der Benutzer angemeldet ist
+login_result = {}
+login_done = tk.BooleanVar(value=False)
+
+
+def on_login_success(vault, history, is_new):
+    login_result.update(vault=vault, history=history, is_new=is_new)
+    login_done.set(True)
+
+
+def cancel_login():
+    root.destroy()
+    sys.exit(0)
+
+
+root.protocol("WM_DELETE_WINDOW", cancel_login)
+login_view = LoginView(root, vault_content, on_login_success)
+login_view.place(relx=0, rely=0, relwidth=1, relheight=1)
+root.update()
+root.wait_variable(login_done)
+login_view.destroy()
+
+vault = login_result["vault"]
+history = login_result["history"]
+if login_result["is_new"] and not history.history and LOAD_DEMO_DATA:
+    load_demo_data(history)
+
 vm = ClipboardViewModel(history)
 service = ClipboardService(vm.receive_text)
 vm.service = service
@@ -945,7 +989,7 @@ layout = {"narrow": False, "auto_collapsed": False}
 def save_now():
     pending_save["job"] = None
     try:
-        save_history(history)
+        save_encrypted(history, vault)
     except OSError as error:
         print(f"Speichern fehlgeschlagen: {error}")
 
@@ -979,19 +1023,9 @@ def on_close():
 
     root.destroy()
 
-#  Eigene Programmkennung, damit Windows in der Taskleiste unser Symbol zeigt statt das von Python
-ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Abkoo.Zwischenablagen.Manager")
 
-root = ctk.CTk()
-root.title(APP_TITLE)
-# CustomTkinter setzt kurz nach dem Start ein eigenes Symbol, deshalb mit Verzögerung
-root.after(300, lambda: root.iconbitmap(resource_path("icon.ico")))
-root.minsize(420, 420)
-root.bind("<Control-b>", lambda _event: on_sidebar_toggle())
 
-root.protocol("WM_DELETE_WINDOW", on_close)
 
-root.geometry(settings["window_geometry"] or DEFAULT_GEOMETRY)
 
 #print("Gesetzt:", settings["window_geometry"])
 
@@ -1067,6 +1101,7 @@ hint_label.pack(side="bottom", fill="x", padx=16, pady=(8, 12))
 
 
 # Start
+root.protocol("WM_DELETE_WINDOW", on_close)
 vm.subscribe(refresh_header)
 vm.subscribe(schedule_save)
 card_view.refresh()

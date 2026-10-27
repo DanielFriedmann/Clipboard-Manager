@@ -42,3 +42,32 @@ with tempfile.TemporaryDirectory() as folder:
     print(load_history(path), "   (erwartet: Meldung und None)")
     print([name for name in os.listdir(folder) if "defekt" in name],
           "   (erwartet: eine umbenannte Datei)")
+
+    
+    # Fall 5: verschlüsselt speichern und laden
+    from vault import Vault, WrongPassword
+    from storage import load_encrypted, read_vault_file, save_encrypted
+
+    vault_path = os.path.join(folder, "vault.json")
+    vault, _code = Vault.create("geheim123")
+    save_encrypted(original, vault, vault_path)
+
+    with open(vault_path, encoding="utf-8") as file:
+        raw = file.read()
+    print("Einkaufsliste" in raw, "Arbeit" in raw, "   (erwartet: False False, kein Klartext)")
+
+    content = read_vault_file(vault_path)
+    unlocked = Vault.unlock(content["vault"], "geheim123")
+    loaded = load_encrypted(content, unlocked)
+    print([i.content for i in loaded.history] == [i.content for i in original.history],
+          "   (erwartet: True)")
+    print([g.name for g in loaded.groups] == [g.name for g in original.groups],
+          "   (erwartet: True)")
+
+    try:
+        Vault.unlock(content["vault"], "falsch123")
+        print("FEHLER: falsches Passwort angenommen")
+    except WrongPassword:
+        print("Falsches Passwort korrekt abgelehnt")
+
+    print(read_vault_file(os.path.join(folder, "gibtesnicht.json")), "   (erwartet: None)")
