@@ -46,3 +46,4 @@
 --  Sicherheitskonzept (Anmeldung, Kommunikation, Datensicherung)  
 --  API / Microservices  
 -- Passwort ändern
+-- Feedback wenn Zwischenablage erneuert wurde

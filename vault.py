@@ -24,11 +24,11 @@ class WrongPassword(Exception):
 # Hilfsfunktionen
 
 def _b64(data):
-    return base64.b64encode(data).decode("ascii")
+    return base64.b64encode(data).decode("ascii")  
 
 
 def _unb64(text):
-    return base64.b64decode(text)
+    return base64.b64decode(text)  
 
 
 def _derive_key(secret, salt, params):
