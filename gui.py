@@ -14,7 +14,7 @@ from widgets import GroupIcon, Tooltip
 from tkinter import messagebox, ttk, colorchooser
 from clipboard_service import ClipboardService
 from history import ClipboardHistory
-from viewmodel import ClipboardViewModel
+from viewmodel import ClipboardViewModel, MASK
 
 from login_view import LoginView
 from storage import read_vault_file, save_encrypted
@@ -44,6 +44,12 @@ ALL_ICON_FONT = ("Segoe UI Symbol", 15)
 FONT = ("Segoe UI", 13)
 FONT_TITLE = ("Segoe UI Semibold", 18)
 FONT_SMALL = ("Segoe UI", 11)
+
+FONT_BOLD = ("Segoe UI Semibold", 13)
+FONT_ITALIC = ("Segoe UI", 13, "italic")
+FONT_KIND = ("Segoe MDL2 Assets", 13)
+
+CARD_FONTS = {"title": FONT_BOLD, "placeholder": FONT_ITALIC, "plain": FONT}
 
 SIDEBAR_EXPANDED_WIDTH = 210
 SIDEBAR_COLLAPSED_WIDTH = 52
@@ -140,10 +146,38 @@ class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
                               fg_color=self.vm.group_color(item))
         stripe.grid(row=0, column=0, sticky="ns", padx=(6, 0), pady=8)
 
-        # Spalte 1: Vorschau, verlangt keinen eigenen Platz und wird an der Kante abgeschnitten
-        preview_label = ctk.CTkLabel(card, text=self.vm.preview(item), font=FONT,
-                                     text_color=TEXT, anchor="w", justify="left", width=1)
-        preview_label.grid(row=0, column=1, sticky="ew", padx=(12, 16), pady=10)
+        # Spalte 1: Text in zwei Zeilen, verlangt keinen eigenen Platz und wird abgeschnitten
+        text_box = ctk.CTkFrame(card, fg_color="transparent")
+        text_box.grid(row=0, column=1, sticky="ew", padx=(12, 16), pady=6)
+        text_box.grid_columnconfigure(1, weight=1)
+        text_widgets = [text_box]
+
+        icon = self.vm.kind_icon(item)
+        if icon:
+            icon_label = ctk.CTkLabel(text_box, text=icon, font=FONT_KIND,
+                                      text_color=MUTED, width=18)
+            icon_label.grid(row=0, column=0, padx=(0, 8))
+            text_widgets.append(icon_label)
+
+        style = self.vm.text_style(item)
+        main_label = ctk.CTkLabel(text_box, text=self.vm.display_text(item),
+                                  font=CARD_FONTS[style],
+                                  text_color=MUTED if style == "placeholder" else TEXT,
+                                  anchor="w", justify="left", width=1)
+        main_label.grid(row=0, column=1, sticky="ew")
+        text_widgets.append(main_label)
+
+        if item.is_password:
+            mask_label = ctk.CTkLabel(text_box, text=MASK, font=FONT_SMALL, text_color=MUTED)
+            mask_label.grid(row=0, column=2, padx=(12, 0))
+            text_widgets.append(mask_label)
+
+        source = self.vm.source_text(item)
+        if source:
+            source_label = ctk.CTkLabel(text_box, text=source, font=FONT_SMALL,
+                                        text_color=MUTED, anchor="w", width=1, height=16)
+            source_label.grid(row=1, column=1, columnspan=2, sticky="ew")
+            text_widgets.append(source_label)
 
         # Spalte 2: Uhrzeit über Datum, rechtsbündig
         time_box = ctk.CTkFrame(card, fg_color="transparent")
@@ -185,7 +219,7 @@ class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
         self.card_items[card] = item
 
         # Klick, Ziehen und Hover auf allem außer den Buttons
-        for widget in (card, stripe, preview_label, time_box, time_label, date_label,
+        for widget in (card, stripe, *text_widgets, time_box, time_label, date_label,
                        action_box, buttons, group_label):
             widget.bind("<ButtonPress-1>", lambda event, i=item: self._on_press(event, i))
             widget.bind("<B1-Motion>", self._on_motion)
@@ -280,6 +314,7 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
         self.compact = False
         self.sidebar = sidebar
         self.row_items = {}   # Zeilen-ID → Eintrag
+        self.row_tags = {}    # Zeilen-ID → Stil-Tags, damit "drop" sie nicht überschreibt
         self.drag = {"item": None, "start_y": 0, "active": False, "target_row": None}
 
         ttk.Style().theme_use("clam")
@@ -320,18 +355,21 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
 
         self.tree.delete(*self.tree.get_children())
         self.row_items.clear()
+        self.row_tags.clear()
 
         for item in self.vm.get_visible_items():
             values = (
                 "☑" if self.vm.is_checked(item) else "☐",
                 self.vm.position(item),
-                self.vm.preview(item, 80),
+                self.vm.display_text(item, 80),
                 self.vm.group_name(item),
                 self.vm.datetime_text(item),
                 "★" if item.is_favorite else "☆",
             )
-            row_id = self.tree.insert("", "end", values=values)
+            tags = (self.vm.text_style(item),)
+            row_id = self.tree.insert("", "end", values=values, tags=tags)
             self.row_items[row_id] = item
+            self.row_tags[row_id] = tags
 
         for col_id, title, _width, sort_key in COLUMNS:
             text = title
@@ -352,6 +390,11 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
         head = "#333333" if dark else "#ebebeb"
         selected = "#33415c" if dark else "#dbe7f6"
         drop = "#4ca0e0" if dark else "#9cc3ec"
+
+        self.tree.tag_configure("drop", background=drop)   # Farbe der Ziel-Zeile
+        self.tree.tag_configure("title", font=("Segoe UI Semibold", 10))
+        self.tree.tag_configure("placeholder", font=("Segoe UI", 10, "italic"),
+                                foreground="#a0a0a0" if dark else "#6b6b6b")
 
         style = ttk.Style()
         style.configure("Treeview", background=bg, fieldbackground=bg, foreground=fg,
@@ -377,9 +420,9 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
         if old == row_id:
             return
         if old and self.tree.exists(old):
-            self.tree.item(old, tags=())
+            self.tree.item(old, tags=self.row_tags.get(old, ()))
         if row_id:
-            self.tree.item(row_id, tags=("drop",))
+            self.tree.item(row_id, tags=self.row_tags.get(row_id, ()) + ("drop",))
         self.drag["target_row"] = row_id
 
     def _reset_drag(self):

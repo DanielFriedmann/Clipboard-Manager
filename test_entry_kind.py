@@ -90,6 +90,17 @@ def test_password_keeps_its_data():
     assert not item.needs_review
     assert item.source_app == "KeePass"
 
+def test_search_finds_title_but_not_password_content():
+    history = ClipboardHistory()
+    link = history.add_item("https://intranet.firma.de")
+    link.title = "Intranet"
+    secret = history.add_item("geheim123", kind=EntryKind.PASSWORD)
+    secret.title = "VPN-Portal"
+
+    assert history.get_history(search="intranet") == [link]
+    assert history.get_history(search="vpn") == [secret]
+    assert history.get_history(search="geheim") == []
+
 
 if __name__ == "__main__":
     test_guess_kind()
@@ -99,4 +110,5 @@ if __name__ == "__main__":
     test_add_password()
     test_existing_text_becomes_password()
     test_password_keeps_its_data()
+    test_search_finds_title_but_not_password_content()
     print("alle Tests ok")

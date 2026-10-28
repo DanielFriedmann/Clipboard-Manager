@@ -7,6 +7,14 @@ PREVIEW_LENGTH = 80
 # Spalten der Tabelle in ihrer Reihenfolge; Überschriften und Breiten stehen in gui.py
 TABLE_COLUMNS = ("check", "position", "content", "group", "time", "favorite")
 
+MASK = "••••••••"
+
+# Symbole aus der Windows-Schrift "Segoe MDL2 Assets"
+KIND_ICONS = {
+    EntryKind.PASSWORD: "\uE72E",   # Schloss
+    EntryKind.LINK: "\uE71B",       # Kettenglied
+}
+
 
 class ClipboardViewModel:
     def __init__(self, history):
@@ -135,8 +143,41 @@ class ClipboardViewModel:
     @staticmethod
     def preview(item, max_length=PREVIEW_LENGTH):
         if item.is_password:
-            return "••••••••"
+            return MASK
         return ClipboardViewModel._shorten(item.content, max_length)
+
+    @staticmethod
+    def item_title(item):
+        if item.title:
+            return item.title
+        if item.is_password:
+            return "Unbenanntes Passwort"
+        return None
+
+    @staticmethod
+    def display_text(item, max_length=PREVIEW_LENGTH):
+        # Titel ersetzt den Inhalt
+        title = ClipboardViewModel.item_title(item)
+        if title:
+            return ClipboardViewModel._shorten(title, max_length)
+        return ClipboardViewModel.preview(item, max_length)
+
+    @staticmethod
+    def text_style(item):
+        # "title" = umbenannt, "placeholder" = Passwort ohne Namen, "plain" = Inhalt
+        if item.title:
+            return "title"
+        if item.is_password:
+            return "placeholder"
+        return "plain"
+
+    @staticmethod
+    def kind_icon(item):
+        return KIND_ICONS.get(item.kind, "")
+
+    @staticmethod
+    def source_text(item):
+        return f"aus {item.source_app}" if item.source_app else ""
 
     @staticmethod
     def group_initial(group):

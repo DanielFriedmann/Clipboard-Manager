@@ -1,6 +1,22 @@
 from models import ClipboardGroup, ClipboardItem, ClipboardFormat, EntryKind
 from datetime import datetime
 
+def _matches(item, term):
+    # Passwörter nie über ihren Inhalt finden
+    fields = [item.title, item.username, item.source_app]
+    if not item.is_password:
+        fields.append(item.content)
+    return any(term in field.lower() for field in fields if field)
+
+
+def _content_key(item):
+    # sortiert nach dem, was man sieht
+    if item.title:
+        return item.title.lower()
+    if item.is_password:
+        return ""
+    return item.content.lower()
+
 
 class ClipboardHistory:
     def __init__(self):
@@ -70,13 +86,13 @@ class ClipboardHistory:
             items = [item for item in items if item.is_favorite]
         if search:
             term = search.lower()
-            items = [item for item in items if term in item.content.lower()]
+            items = [item for item in items if _matches(item, term)]
 
         # 2. Sortierung und Richtung
         if sort_by == "time":
             items = sorted(items, key=lambda item: item.created_at, reverse=descending)
         elif sort_by == "content":
-            items = sorted(items, key=lambda item: item.content.lower(), reverse=descending)
+            items = sorted(items, key=_content_key, reverse=descending)
         elif sort_by == "favorite":
             items = sorted(items, key=lambda item: item.is_favorite, reverse=not descending)
         elif sort_by == "group":
