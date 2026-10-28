@@ -1,6 +1,7 @@
 import threading
 import tkinter as tk
 import customtkinter as ctk
+import tkinter.font as tkfont
 
 import ctypes
 import os
@@ -10,7 +11,7 @@ import single_instance
 
 from settings import load_settings, save_settings
 from demo_data import load_demo_data
-from widgets import GroupIcon, Tooltip
+from widgets import GroupIcon, Tooltip, is_inside
 from tkinter import messagebox, ttk, colorchooser
 from clipboard_service import ClipboardService
 from history import ClipboardHistory
@@ -60,6 +61,10 @@ WIDE_ABOVE = 780     # über dieser Breite wieder breiter Modus
 DEFAULT_GEOMETRY = "1000x560"
 
 DRAG_THRESHOLD = 5
+
+TEXT_TOOLTIP_DELAY = 1000   # ms
+TEXT_TOOLTIP_WIDTH = 480    # px, danach Zeilenumbruch
+TABLE_FONT = ("Segoe UI", 10)
 
 SORT_OPTIONS = {
     "Eigene Reihenfolge": "priority",
@@ -227,13 +232,35 @@ class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
             widget.bind("<Enter>", lambda _event, c=card: c.configure(fg_color=CARD_HOVER))
             widget.bind("<Leave>", lambda _event, c=card: self._on_card_leave(c))
 
+        # Tooltip erst jetzt, damit seine Bindungen die obigen ergänzen statt ersetzen
+        Tooltip([card, *text_widgets], self._tooltip_text(item, main_label),
+                delay=TEXT_TOOLTIP_DELAY, position="pointer",
+                wraplength=TEXT_TOOLTIP_WIDTH)
+
     #  Hover 
 
     def _on_card_leave(self, card):
         x, y = card.winfo_pointerxy()
         widget = card.winfo_containing(x, y)
-        if widget is None or not str(widget).startswith(str(card)):
+        if widget is None or not is_inside(widget, card):
             card.configure(fg_color=CARD)
+
+    def _tooltip_text(self, item, label):
+        # wird erst beim Anzeigen aufgerufen, dann ist die Breite bekannt
+        def text():
+            if self.vm.always_tooltip(item) or self._is_cut(item, label):
+                return self.vm.tooltip_text(item)
+            return None
+        return text
+
+    @staticmethod
+    def _is_cut(item, label):
+        shown = label.cget("text")
+        if shown != item.content.strip():
+            return True   # gekürzt oder Zeilenumbrüche zusammengefasst
+        # Achtung: _label ist ein internes Feld von CustomTkinter
+        font = tkfont.Font(font=label._label.cget("font"))
+        return font.measure(shown) > label.winfo_width()
 
     # Drag & Drop 
 
@@ -339,6 +366,11 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
         self.tree.bind("<ButtonRelease-1>", self._on_release)
         self.tree.bind("<Double-1>", self._on_double_click)
 
+        self._hover_row = None
+        self.tooltip = Tooltip(self.tree, self._tooltip_text, delay=TEXT_TOOLTIP_DELAY,
+                               position="pointer", wraplength=TEXT_TOOLTIP_WIDTH)
+        self.tree.bind("<Motion>", self._on_hover, add="+")
+
         vm.subscribe(self.refresh)
 
     #  Zeichnen 
@@ -356,6 +388,8 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
         self.tree.delete(*self.tree.get_children())
         self.row_items.clear()
         self.row_tags.clear()
+
+        self._hover_row = None   # alte Zeilen-IDs gibt es nicht mehr
 
         for item in self.vm.get_visible_items():
             values = (
@@ -391,20 +425,18 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
         selected = "#33415c" if dark else "#dbe7f6"
         drop = "#4ca0e0" if dark else "#9cc3ec"
 
-        self.tree.tag_configure("drop", background=drop)   # Farbe der Ziel-Zeile
-        self.tree.tag_configure("title", font=("Segoe UI Semibold", 10))
-        self.tree.tag_configure("placeholder", font=("Segoe UI", 10, "italic"),
-                                foreground="#a0a0a0" if dark else "#6b6b6b")
-
         style = ttk.Style()
         style.configure("Treeview", background=bg, fieldbackground=bg, foreground=fg,
-                        rowheight=28, borderwidth=0, font=("Segoe UI", 10))
+                        rowheight=28, borderwidth=0, font=TABLE_FONT)
         style.configure("Treeview.Heading", background=head, foreground=fg,
                         relief="flat", font=("Segoe UI Semibold", 10))
         style.map("Treeview", background=[("selected", selected)],
                   foreground=[("selected", fg)])
 
         self.tree.tag_configure("drop", background=drop)   # Farbe der Ziel-Zeile
+        self.tree.tag_configure("title", font=("Segoe UI Semibold", 10))
+        self.tree.tag_configure("placeholder", font=("Segoe UI", 10, "italic"),
+                                foreground="#a0a0a0" if dark else "#6b6b6b")
 
     # Hilfsfunktionen 
 
@@ -527,7 +559,36 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
             return
         row_id = self.tree.identify_row(event.y)
         if row_id and self._column_id_at(event.x) not in ("check", "favorite"):
-            self.vm.copy(self.row_items[row_id])   
+            self.vm.copy(self.row_items[row_id])  
+
+    # Tooltip
+
+    def _on_hover(self, event):
+        row_id = None
+        if self.tree.identify_region(event.x, event.y) == "cell":
+            row_id = self.tree.identify_row(event.y) or None
+        if row_id != self._hover_row:
+            # neue Zeile: alten Tooltip schließen und Verzögerung neu starten
+            self._hover_row = row_id
+            self.tooltip.hide()
+            if row_id:
+                self.tooltip.schedule()
+
+    def _tooltip_text(self):
+        row_id = self._hover_row
+        if row_id is None or row_id not in self.row_items:
+            return None
+        item = self.row_items[row_id]
+        if self.vm.always_tooltip(item) or self._is_cut(item, row_id):
+            return self.vm.tooltip_text(item)
+        return None
+
+    def _is_cut(self, item, row_id):
+        shown = str(self.tree.set(row_id, "content"))
+        if shown != item.content.strip():
+            return True
+        width = self.tree.column("content", "width")
+        return tkfont.Font(font=TABLE_FONT).measure(shown) > width - 12
 
 class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
     def __init__(self, master, vm):
@@ -700,7 +761,7 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
     def _on_row_leave(self, row, normal_color):
         x, y = row.winfo_pointerxy()
         widget = row.winfo_containing(x, y)
-        if widget is None or not str(widget).startswith(str(row)):
+        if widget is None or not is_inside(widget, row):
             row.configure(fg_color=normal_color)
 
     # Für Drag & Drop, auch von den anderen Ansichten benutzt

@@ -15,6 +15,9 @@ KIND_ICONS = {
     EntryKind.LINK: "\uE71B",       # Kettenglied
 }
 
+TOOLTIP_MAX_LINES = 15
+TOOLTIP_MAX_CHARS = 1000
+
 
 class ClipboardViewModel:
     def __init__(self, history):
@@ -178,6 +181,33 @@ class ClipboardViewModel:
     @staticmethod
     def source_text(item):
         return f"aus {item.source_app}" if item.source_app else ""
+
+    def tooltip_text(self, item):
+        if item.is_password:
+            # niemals den Inhalt eines Passworts zeigen
+            lines = [self.item_title(item)]
+            if item.username:
+                lines.append(f"Benutzer: {item.username}")
+            info = [part for part in (self.source_text(item), self.datetime_text(item)) if part]
+            lines.append(" · ".join(info))
+            return "\n".join(lines)
+        return self._limit_text(item.content)
+
+    @staticmethod
+    def _limit_text(text):
+        text = text.strip()
+        cut = len(text) > TOOLTIP_MAX_CHARS
+        lines = text[:TOOLTIP_MAX_CHARS].splitlines()
+        if len(lines) > TOOLTIP_MAX_LINES:
+            lines = lines[:TOOLTIP_MAX_LINES]
+            cut = True
+        result = "\n".join(lines)
+        return result + "\n…" if cut else result
+
+    @staticmethod
+    def always_tooltip(item):
+        # Inhalt ist nicht zu sehen, also immer einen Tooltip zeigen
+        return bool(item.title) or item.is_password
 
     @staticmethod
     def group_initial(group):
