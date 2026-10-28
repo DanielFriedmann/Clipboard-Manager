@@ -1,4 +1,4 @@
-from models import ClipboardGroup, ClipboardItem, ClipboardFormat, EntryKind
+from models import ClipboardGroup, ClipboardItem, ClipboardFormat, EntryKind, guess_kind
 from datetime import datetime
 
 def _matches(item, term):
@@ -8,6 +8,10 @@ def _matches(item, term):
         fields.append(item.content)
     return any(term in field.lower() for field in fields if field)
 
+def _clean(text):
+    # leere Eingabe heißt: kein Wert
+    text = (text or "").strip()
+    return text or None
 
 def _content_key(item):
     # sortiert nach dem, was man sieht
@@ -74,6 +78,21 @@ class ClipboardHistory:
 
     def toggle_favorite(self, item):
         item.is_favorite = not item.is_favorite
+
+    def rename_item(self, item, title, username=None):
+        item.title = _clean(title)
+        if item.is_password:
+            item.username = _clean(username)
+        item.needs_review = False
+
+    def mark_password(self, item, is_password):
+        if is_password:
+            if not item.is_password:
+                item.kind = EntryKind.PASSWORD
+                item.needs_review = item.title is None
+        else:
+            item.kind = guess_kind(item.content)
+            item.needs_review = False
 
     def get_history(self, group=None, sort_by="priority", descending=False,
                 search="", favorites_only=False):

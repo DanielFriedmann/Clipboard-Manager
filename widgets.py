@@ -17,6 +17,13 @@ def text_color_for(background):
     brightness = 0.299 * red + 0.587 * green + 0.114 * blue
     return "#1a1a1a" if brightness > 150 else "#ffffff"
 
+def place_near(dialog, parent, width=320, height=180):
+    # Dialog mit fester Größe über dem Elternfenster platzieren
+    parent.update_idletasks()
+    x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
+    y = parent.winfo_rooty() + (parent.winfo_height() - height) // 3
+    dialog.geometry(f"{width}x{height}+{x}+{y}")
+
 
 class GroupIcon(ctk.CTkFrame):
     # Farbiges Quadrat mit einem Zeichen in der Mitte

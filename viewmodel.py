@@ -315,6 +315,14 @@ class ClipboardViewModel:
         self.history.toggle_favorite(item)
         self._notify()
 
+    def rename(self, item, title, username=None):
+        self.history.rename_item(item, title, username)
+        self._notify()
+
+    def set_password(self, item, is_password):
+        self.history.mark_password(item, is_password)
+        self._notify()
+
     def move(self, item, target, after=False):
         if not self.can_drag:
             return

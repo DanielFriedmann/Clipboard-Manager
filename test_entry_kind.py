@@ -101,6 +101,39 @@ def test_search_finds_title_but_not_password_content():
     assert history.get_history(search="vpn") == [secret]
     assert history.get_history(search="geheim") == []
 
+def test_rename_clears_review_and_trims():
+    history = ClipboardHistory()
+    item = history.add_item("geheim", kind=EntryKind.PASSWORD, needs_review=True)
+
+    history.rename_item(item, "  VPN-Portal ", "  daniel ")
+
+    assert item.title == "VPN-Portal"
+    assert item.username == "daniel"
+    assert not item.needs_review
+
+
+def test_rename_empty_removes_title():
+    history = ClipboardHistory()
+    item = history.add_item("Text")
+    item.title = "Alt"
+
+    history.rename_item(item, "   ")
+
+    assert item.title is None
+
+
+def test_mark_and_unmark_password():
+    history = ClipboardHistory()
+    item = history.add_item("https://firma.de")
+
+    history.mark_password(item, True)
+    assert item.is_password
+    assert item.needs_review
+
+    history.mark_password(item, False)
+    assert item.kind == EntryKind.LINK
+    assert not item.needs_review
+
 
 if __name__ == "__main__":
     test_guess_kind()
@@ -111,4 +144,7 @@ if __name__ == "__main__":
     test_existing_text_becomes_password()
     test_password_keeps_its_data()
     test_search_finds_title_but_not_password_content()
+    test_rename_clears_review_and_trims()
+    test_rename_empty_removes_title()
+    test_mark_and_unmark_password()
     print("alle Tests ok")

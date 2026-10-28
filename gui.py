@@ -11,12 +11,12 @@ import single_instance
 
 from settings import load_settings, save_settings
 from demo_data import load_demo_data
-from widgets import GroupIcon, Tooltip, is_inside
+from widgets import GroupIcon, Tooltip, is_inside, place_near
 from tkinter import messagebox, ttk, colorchooser
 from clipboard_service import ClipboardService
 from history import ClipboardHistory
 from viewmodel import ClipboardViewModel, MASK
-
+from edit_dialog import EditDialog
 from login_view import LoginView
 from storage import read_vault_file, save_encrypted
 
@@ -93,12 +93,6 @@ COLUMNS = [
 
 COMPACT_COLUMNS = ("check", "content", "favorite")   # Spalten im schmalen Modus
 
-def place_near(dialog, parent, width=320, height=180):
-    # Dialog mit fester Größe über dem Elternfenster platzieren
-    parent.update_idletasks()
-    x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
-    y = parent.winfo_rooty() + (parent.winfo_height() - height) // 3
-    dialog.geometry(f"{width}x{height}+{x}+{y}")
 
 def resource_path(filename):
     # In der .exe liegen mitgelieferte Dateien in einem eigenen Ordner von PyInstaller
@@ -112,13 +106,32 @@ def is_on_screen(x, y):
     # 0 bedeutet: an dieser Stelle gibt es keinen Monitor
     return bool(ctypes.windll.user32.MonitorFromPoint(POINT(x, y), 0))
 
+def show_item_menu(widget, event, vm, item, on_edit):
+    menu = tk.Menu(widget, tearoff=0)
+    edit_label = "Benennen …" if item.needs_review else "Umbenennen …"
+    menu.add_command(label=edit_label, command=lambda: on_edit(item))
+    if item.title:
+        menu.add_command(label="Namen entfernen",
+                         command=lambda: vm.rename(item, "", item.username))
+    menu.add_separator()
+    if item.is_password:
+        menu.add_command(label="Kein Passwort", command=lambda: vm.set_password(item, False))
+    else:
+        menu.add_command(label="Als Passwort markieren",
+                         command=lambda: vm.set_password(item, True))
+    menu.add_separator()
+    menu.add_command(label="Kopieren", command=lambda: vm.copy(item))
+    menu.add_command(label="Löschen", command=lambda: vm.delete(item))
+    menu.tk_popup(event.x_root, event.y_root)
+
 #  Klassen für Ansichten
 
 class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
-    def __init__(self, master, vm, sidebar):
+    def __init__(self, master, vm, sidebar, on_edit):
         super().__init__(master, fg_color="transparent")
         self.vm = vm
         self.sidebar = sidebar
+        self.on_edit = on_edit
         self.card_items = {}   # Kachel → Eintrag
         self.drag = {"item": None, "start_y": 0, "active": False, "target": None}
         vm.subscribe(self.refresh)   # bei jeder Änderung neu zeichnen
@@ -177,6 +190,10 @@ class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
             mask_label.grid(row=0, column=2, padx=(12, 0))
             text_widgets.append(mask_label)
 
+        if item.needs_review:
+            ctk.CTkButton(text_box, text="Benennen", width=76, height=22, font=FONT_SMALL,
+                          command=lambda i=item: self.on_edit(i)).grid(row=0, column=3, padx=(12, 0))
+
         source = self.vm.source_text(item)
         if source:
             source_label = ctk.CTkLabel(text_box, text=source, font=FONT_SMALL,
@@ -231,6 +248,7 @@ class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
             widget.bind("<ButtonRelease-1>", self._on_release)
             widget.bind("<Enter>", lambda _event, c=card: c.configure(fg_color=CARD_HOVER))
             widget.bind("<Leave>", lambda _event, c=card: self._on_card_leave(c))
+            widget.bind("<Button-3>", lambda event, i=item: self._open_menu(event, i))
 
         # Tooltip erst jetzt, damit seine Bindungen die obigen ergänzen statt ersetzen
         Tooltip([card, *text_widgets], self._tooltip_text(item, main_label),
@@ -244,6 +262,9 @@ class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
         widget = card.winfo_containing(x, y)
         if widget is None or not is_inside(widget, card):
             card.configure(fg_color=CARD)
+
+    def _open_menu(self, event, item):
+        show_item_menu(self, event, self.vm, item, self.on_edit)
 
     def _tooltip_text(self, item, label):
         # wird erst beim Anzeigen aufgerufen, dann ist die Breite bekannt
@@ -335,11 +356,12 @@ class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
             self.vm.move(item, self.card_items[card], after=event.y_root > middle)
 
 class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
-    def __init__(self, master, vm, sidebar):
+    def __init__(self, master, vm, sidebar, on_edit):
         super().__init__(master, fg_color="transparent")
         self.vm = vm
         self.compact = False
         self.sidebar = sidebar
+        self.on_edit = on_edit
         self.row_items = {}   # Zeilen-ID → Eintrag
         self.row_tags = {}    # Zeilen-ID → Stil-Tags, damit "drop" sie nicht überschreibt
         self.drag = {"item": None, "start_y": 0, "active": False, "target_row": None}
@@ -365,6 +387,7 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
         self.tree.bind("<B1-Motion>", self._on_motion)
         self.tree.bind("<ButtonRelease-1>", self._on_release)
         self.tree.bind("<Double-1>", self._on_double_click)
+        self.tree.bind("<Button-3>", self._on_right_click)
 
         self._hover_row = None
         self.tooltip = Tooltip(self.tree, self._tooltip_text, delay=TEXT_TOOLTIP_DELAY,
@@ -560,6 +583,13 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
         row_id = self.tree.identify_row(event.y)
         if row_id and self._column_id_at(event.x) not in ("check", "favorite"):
             self.vm.copy(self.row_items[row_id])  
+
+    def _on_right_click(self, event):
+        row_id = self.tree.identify_row(event.y)
+        if not row_id:
+            return
+        self.tree.selection_set(row_id)   # zeigt, welche Zeile gemeint ist
+        show_item_menu(self, event, self.vm, self.row_items[row_id], self.on_edit)
 
     # Tooltip
 
@@ -1006,14 +1036,14 @@ def on_view_change(choice):
 
         table_controls.pack(side="right", padx=(8, 0), before=filter_button)
         table_view.pack(fill="both", expand=True, padx=12)
-        hint_label.configure(text="Doppelklick zum Kopieren · Ziehen zum Sortieren · Spaltenkopf zum Sortieren · ☐ zum Markieren")
+        hint_label.configure(text="Doppelklick zum Kopieren · Ziehen zum Sortieren · Spaltenkopf zum Sortieren · ☐ zum Markieren · Rechtsklick für mehr")
     else:
         table_view.pack_forget()
         table_controls.pack_forget()
 
         clear_button.grid()
         card_view.pack(fill="both", expand=True, padx=12)
-        hint_label.configure(text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)")
+        hint_label.configure(text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge) · Rechtsklick für mehr")
 
 def restore_window():
     # CustomTkinter setzt die Größe beim ersten Anzeigen zurück, deshalb erneut setzen
@@ -1081,6 +1111,10 @@ def on_sidebar_toggle():
     # von Hand umgeschaltet: der automatische Zustand gilt nicht mehr
     layout["auto_collapsed"] = False
     sidebar.toggle_collapsed()
+
+def open_edit_dialog(item):
+    EditDialog(root, item, lambda title, username: vm.rename(item, title, username),
+               icon_path=resource_path("icon.ico"))
 
 #  Daten
 
@@ -1192,10 +1226,10 @@ delete_checked_button = ctk.CTkButton(table_controls, text="Markierte löschen",
 delete_checked_button.pack()
 
 # Ansicht
-card_view = CardView(main_area, vm, sidebar)
+card_view = CardView(main_area, vm, sidebar, open_edit_dialog)
 card_view.pack(fill="both", expand=True, padx=12)
 
-table_view = TableView(main_area, vm, sidebar)   # wird erst beim Umschalten angezeigt
+table_view = TableView(main_area, vm, sidebar, open_edit_dialog)   # wird erst beim Umschalten angezeigt
 
 hint_label = ctk.CTkLabel(
     main_area, text="Klicken zum Kopieren · Ziehen zum Sortieren (nur in eigener Reihenfolge)",

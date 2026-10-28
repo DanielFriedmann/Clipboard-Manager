@@ -43,6 +43,7 @@ class ClipboardItem:
     kind: EntryKind = EntryKind.TEXT
     title: str | None = None
     username: str | None = None
+    url: str | None = None
     source_app: str | None = None
     needs_review: bool = False
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
