@@ -1,6 +1,25 @@
-from models import ClipboardGroup, ClipboardItem, ClipboardFormat
+from models import ClipboardGroup, ClipboardItem, ClipboardFormat, EntryKind, guess_kind
 from datetime import datetime
 
+def _matches(item, term):
+    # Passwörter nie über ihren Inhalt finden
+    fields = [item.title, item.username, item.url, item.source_app]
+    if not item.is_password:
+        fields.append(item.content)
+    return any(term in field.lower() for field in fields if field)
+
+def _clean(text):
+    # leere Eingabe heißt: kein Wert
+    text = (text or "").strip()
+    return text or None
+
+def _content_key(item):
+    # sortiert nach dem, was man sieht
+    if item.title:
+        return item.title.lower()
+    if item.is_password:
+        return ""
+    return item.content.lower()
 
 class ClipboardHistory:
     def __init__(self):
@@ -8,28 +27,30 @@ class ClipboardHistory:
         self.default_group = ClipboardGroup(name="Unsortiert")
         self.groups = [self.default_group]
 
-    def add_item(self, text):                    
-        
-        existing = None
-        for item in self.history:
-            if item.content == text:
-                existing = item
-                break
-        
-        
-        if existing is not None:            
-            existing.created_at = datetime.now()                          
-        else:
-            clipboard_item = ClipboardItem(
-                clipboard_format=ClipboardFormat.TEXT,
-                content=text, 
-                clipboard_group=self.default_group,
-                )
-            self.history.insert(0, clipboard_item) 
-        
-        
-                
+    def add_item(self, text, kind=EntryKind.TEXT, source_app=None, needs_review=False):
+        existing = next((item for item in self.history if item.content == text), None)
 
+        if existing is not None:
+            existing.created_at = datetime.now()
+            # zum Passwort hochstufen, aber nie zurückstufen
+            if kind == EntryKind.PASSWORD and not existing.is_password:
+                existing.kind = EntryKind.PASSWORD
+                existing.needs_review = needs_review
+            if existing.source_app is None:
+                existing.source_app = source_app
+            return existing
+
+        clipboard_item = ClipboardItem(
+            clipboard_format=ClipboardFormat.TEXT,
+            content=text,
+            clipboard_group=self.default_group,
+            kind=kind,
+            source_app=source_app,
+            needs_review=needs_review,
+        )
+        self.history.insert(0, clipboard_item)
+        return clipboard_item
+                
     def remove_item(self, item):
         if item in self.history:
             self.history.remove(item) 
@@ -54,6 +75,22 @@ class ClipboardHistory:
     def toggle_favorite(self, item):
         item.is_favorite = not item.is_favorite
 
+    def rename_item(self, item, title, username=None, url=None):
+        item.title = _clean(title)
+        if item.is_password:
+            item.username = _clean(username)
+            item.url = _clean(url)
+        item.needs_review = False
+
+    def mark_password(self, item, is_password):
+        if is_password:
+            if not item.is_password:
+                item.kind = EntryKind.PASSWORD
+                item.needs_review = item.title is None
+        else:
+            item.kind = guess_kind(item.content)
+            item.needs_review = False
+
     def get_history(self, group=None, sort_by="priority", descending=False,
                 search="", favorites_only=False):
         items = list(self.history)
@@ -65,13 +102,13 @@ class ClipboardHistory:
             items = [item for item in items if item.is_favorite]
         if search:
             term = search.lower()
-            items = [item for item in items if term in item.content.lower()]
+            items = [item for item in items if _matches(item, term)]
 
         # 2. Sortierung und Richtung
         if sort_by == "time":
             items = sorted(items, key=lambda item: item.created_at, reverse=descending)
         elif sort_by == "content":
-            items = sorted(items, key=lambda item: item.content.lower(), reverse=descending)
+            items = sorted(items, key=_content_key, reverse=descending)
         elif sort_by == "favorite":
             items = sorted(items, key=lambda item: item.is_favorite, reverse=not descending)
         elif sort_by == "group":

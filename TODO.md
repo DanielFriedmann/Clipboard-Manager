@@ -47,3 +47,4 @@
 --  API / Microservices  
 -- Passwort ändern
 -- Feedback wenn Zwischenablage erneuert wurde
+-- BUG Passwort in Zwischenablage wird nur erkannt wenn es ein neues ist, bei gleichem passwort wird es jedes mal nicht als neues erkannt

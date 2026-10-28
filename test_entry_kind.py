@@ -1,0 +1,163 @@
+from datetime import datetime
+
+from history import ClipboardHistory
+from models import ClipboardFormat, ClipboardItem, EntryKind, guess_kind
+from storage import history_from_dict, history_to_dict
+
+
+def test_guess_kind():
+    assert guess_kind("https://example.com") == EntryKind.LINK
+    assert guess_kind("  www.firma.de  ") == EntryKind.LINK
+    assert guess_kind("www.firma.de hat neue Zeiten") == EntryKind.TEXT
+    assert guess_kind("Hallo Welt") == EntryKind.TEXT
+
+
+def test_round_trip_keeps_new_fields():
+    history = ClipboardHistory()
+    item = ClipboardItem(ClipboardFormat.TEXT, "geheim123",
+                         clipboard_group=history.default_group,
+                         kind=EntryKind.PASSWORD, title="VPN-Portal",
+                         username="daniel", url="https://vpn.firma.de",
+                         source_app="KeePass", needs_review=True)
+    history.history.append(item)
+
+    loaded = history_from_dict(history_to_dict(history)).history[0]
+
+    assert loaded.id == item.id
+    assert loaded.is_password
+    assert loaded.title == "VPN-Portal"
+    assert loaded.username == "daniel"
+    assert loaded.source_app == "KeePass"
+    assert loaded.needs_review
+    assert loaded.url == "https://vpn.firma.de"
+
+
+def test_old_entry_without_new_fields():
+    data = {
+        "items": [
+            {"content": "https://alt.de", "format": "TEXT", "group": None,
+             "created_at": datetime.now().isoformat()},
+        ],
+    }
+    loaded = history_from_dict(data).history[0]
+
+    assert loaded.kind == EntryKind.LINK
+    assert loaded.title is None
+    assert loaded.id
+
+
+def test_unknown_kind_falls_back_to_text():
+    data = {
+        "items": [
+            {"content": "x", "format": "TEXT", "group": None,
+             "created_at": datetime.now().isoformat(), "kind": "zukunft"},
+        ],
+    }
+    assert history_from_dict(data).history[0].kind == EntryKind.TEXT
+
+
+def test_add_password():
+    history = ClipboardHistory()
+    item = history.add_item("geheim", kind=EntryKind.PASSWORD,
+                            source_app="KeePass", needs_review=True)
+
+    assert item.is_password
+    assert item.source_app == "KeePass"
+    assert item.needs_review
+
+
+def test_existing_text_becomes_password():
+    history = ClipboardHistory()
+    history.add_item("geheim")
+    item = history.add_item("geheim", kind=EntryKind.PASSWORD, needs_review=True)
+
+    assert len(history.history) == 1
+    assert item.is_password
+    assert item.needs_review
+
+
+def test_password_keeps_its_data():
+    history = ClipboardHistory()
+    item = history.add_item("geheim", kind=EntryKind.PASSWORD,
+                            source_app="KeePass", needs_review=True)
+    item.title = "VPN-Portal"
+    item.needs_review = False
+
+    # zurückkopiert aus dem eigenen Manager: ohne Quelle, ohne Signal
+    history.add_item("geheim")
+
+    assert item.is_password
+    assert item.title == "VPN-Portal"
+    assert not item.needs_review
+    assert item.source_app == "KeePass"
+
+def test_search_finds_title_but_not_password_content():
+    history = ClipboardHistory()
+    link = history.add_item("https://intranet.firma.de")
+    link.title = "Intranet"
+    secret = history.add_item("geheim123", kind=EntryKind.PASSWORD)
+    secret.title = "VPN-Portal"
+
+    assert history.get_history(search="intranet") == [link]
+    assert history.get_history(search="vpn") == [secret]
+    assert history.get_history(search="geheim") == []
+
+def test_rename_clears_review_and_trims():
+    history = ClipboardHistory()
+    item = history.add_item("geheim", kind=EntryKind.PASSWORD, needs_review=True)
+
+    history.rename_item(item, "  VPN-Portal ", "  daniel ")
+
+    assert item.title == "VPN-Portal"
+    assert item.username == "daniel"
+    assert not item.needs_review
+
+
+def test_rename_empty_removes_title():
+    history = ClipboardHistory()
+    item = history.add_item("Text")
+    item.title = "Alt"
+
+    history.rename_item(item, "   ")
+
+    assert item.title is None
+
+
+def test_mark_and_unmark_password():
+    history = ClipboardHistory()
+    item = history.add_item("https://firma.de")
+
+    history.mark_password(item, True)
+    assert item.is_password
+    assert item.needs_review
+
+    history.mark_password(item, False)
+    assert item.kind == EntryKind.LINK
+    assert not item.needs_review
+
+def test_search_finds_url_and_remove_title_keeps_rest():
+    history = ClipboardHistory()
+    item = history.add_item("geheim", kind=EntryKind.PASSWORD)
+    history.rename_item(item, "VPN", "daniel", "https://vpn.firma.de")
+
+    assert history.get_history(search="vpn.firma") == [item]
+
+    history.rename_item(item, "", item.username, item.url)
+    assert item.title is None
+    assert item.url == "https://vpn.firma.de"
+    assert item.username == "daniel"
+
+if __name__ == "__main__":
+    test_guess_kind()
+    test_round_trip_keeps_new_fields()
+    test_old_entry_without_new_fields()
+    test_unknown_kind_falls_back_to_text()
+    test_add_password()
+    test_existing_text_becomes_password()
+    test_password_keeps_its_data()
+    test_search_finds_title_but_not_password_content()
+    test_rename_clears_review_and_trims()
+    test_rename_empty_removes_title()
+    test_mark_and_unmark_password()
+    test_search_finds_url_and_remove_title_keeps_rest()
+    print("alle Tests ok")

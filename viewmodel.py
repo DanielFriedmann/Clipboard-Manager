@@ -1,9 +1,22 @@
 import queue
 from datetime import date, timedelta
 
+from models import EntryKind, guess_kind
+
 PREVIEW_LENGTH = 80
 # Spalten der Tabelle in ihrer Reihenfolge; Überschriften und Breiten stehen in gui.py
 TABLE_COLUMNS = ("check", "position", "content", "group", "time", "favorite")
+
+MASK = "••••••••"
+
+# Symbole aus der Windows-Schrift "Segoe MDL2 Assets"
+KIND_ICONS = {
+    EntryKind.PASSWORD: "\uE72E",   # Schloss
+    EntryKind.LINK: "\uE71B",       # Kettenglied
+}
+
+TOOLTIP_MAX_LINES = 15
+TOOLTIP_MAX_CHARS = 1000
 
 
 class ClipboardViewModel:
@@ -33,15 +46,22 @@ class ClipboardViewModel:
 
     # Service-Thread → GUI-Thread
 
-    def receive_text(self, text):
+    def receive_capture(self, capture):
         # läuft im SERVICE-Thread: nur in die Queue legen
-        self._incoming.put(text)
+        self._incoming.put(capture)
 
     def process_incoming(self):
         # läuft im GUI-Thread, wird regelmäßig von der Oberfläche aufgerufen
         changed = False
         while not self._incoming.empty():
-            self.history.add_item(self._incoming.get())
+            capture = self._incoming.get()
+            kind = EntryKind.PASSWORD if capture.is_sensitive else guess_kind(capture.text)
+            self.history.add_item(
+                capture.text,
+                kind=kind,
+                source_app=capture.source_app,
+                needs_review=kind == EntryKind.PASSWORD,
+            )
             changed = True
         if changed:
             self._notify()
@@ -125,7 +145,71 @@ class ClipboardViewModel:
 
     @staticmethod
     def preview(item, max_length=PREVIEW_LENGTH):
+        if item.is_password:
+            return MASK
         return ClipboardViewModel._shorten(item.content, max_length)
+
+    @staticmethod
+    def item_title(item):
+        if item.title:
+            return item.title
+        if item.is_password:
+            return "Unbenanntes Passwort"
+        return None
+
+    @staticmethod
+    def display_text(item, max_length=PREVIEW_LENGTH):
+        # Titel ersetzt den Inhalt
+        title = ClipboardViewModel.item_title(item)
+        if title:
+            return ClipboardViewModel._shorten(title, max_length)
+        return ClipboardViewModel.preview(item, max_length)
+
+    @staticmethod
+    def text_style(item):
+        # "title" = umbenannt, "placeholder" = Passwort ohne Namen, "plain" = Inhalt
+        if item.title:
+            return "title"
+        if item.is_password:
+            return "placeholder"
+        return "plain"
+
+    @staticmethod
+    def kind_icon(item):
+        return KIND_ICONS.get(item.kind, "")
+
+    @staticmethod
+    def source_text(item):
+        return f"aus {item.source_app}" if item.source_app else ""
+
+    def tooltip_text(self, item):
+        if item.is_password:
+            # niemals den Inhalt eines Passworts zeigen
+            lines = [self.item_title(item)]
+            if item.username:
+                lines.append(f"Benutzer: {item.username}")
+            if item.url:
+                lines.append(f"Adresse: {item.url}")
+            info = [part for part in (self.source_text(item), self.datetime_text(item)) if part]
+            lines.append(" · ".join(info))
+            return "\n".join(lines)
+        return self._limit_text(item.content)
+
+    @staticmethod
+    def _limit_text(text):
+        text = text.strip()
+        cut = len(text) > TOOLTIP_MAX_CHARS
+        lines = text[:TOOLTIP_MAX_CHARS].splitlines()
+        if len(lines) > TOOLTIP_MAX_LINES:
+            lines = lines[:TOOLTIP_MAX_LINES]
+            cut = True
+        result = "\n".join(lines)
+        return result + "\n…" if cut else result
+
+    @staticmethod
+    def always_tooltip(item):
+        # Inhalt ist nicht zu sehen, also immer einen Tooltip zeigen
+        return bool(item.title) or item.is_password
 
     @staticmethod
     def group_initial(group):
@@ -222,7 +306,7 @@ class ClipboardViewModel:
 
     def copy(self, item):
         # kein _notify: die Änderung kommt über den Service ohnehin zurück
-        self.service.set_text(item.content)
+        self.service.set_text(item.content, sensitive=item.is_password)
 
     def delete(self, item):
         self.history.remove_item(item)
@@ -231,6 +315,14 @@ class ClipboardViewModel:
 
     def toggle_favorite(self, item):
         self.history.toggle_favorite(item)
+        self._notify()
+
+    def rename(self, item, title, username=None, url=None):
+        self.history.rename_item(item, title, username, url)
+        self._notify()
+
+    def set_password(self, item, is_password):
+        self.history.mark_password(item, is_password)
         self._notify()
 
     def move(self, item, target, after=False):
