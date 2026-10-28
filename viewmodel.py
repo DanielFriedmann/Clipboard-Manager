@@ -188,6 +188,8 @@ class ClipboardViewModel:
             lines = [self.item_title(item)]
             if item.username:
                 lines.append(f"Benutzer: {item.username}")
+            if item.url:
+                lines.append(f"Adresse: {item.url}")
             info = [part for part in (self.source_text(item), self.datetime_text(item)) if part]
             lines.append(" · ".join(info))
             return "\n".join(lines)
@@ -315,8 +317,8 @@ class ClipboardViewModel:
         self.history.toggle_favorite(item)
         self._notify()
 
-    def rename(self, item, title, username=None):
-        self.history.rename_item(item, title, username)
+    def rename(self, item, title, username=None, url=None):
+        self.history.rename_item(item, title, username, url)
         self._notify()
 
     def set_password(self, item, is_password):

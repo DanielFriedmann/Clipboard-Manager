@@ -53,6 +53,7 @@ def history_to_dict(history):
                 "kind": item.kind.value,
                 "title": item.title,
                 "username": item.username,
+                "url": item.url,
                 "source_app": item.source_app,
                 "needs_review": item.needs_review,
             }
@@ -94,6 +95,7 @@ def history_from_dict(data):
             kind=_kind_from_entry(entry, clipboard_format),
             title=entry.get("title"),
             username=entry.get("username"),
+            url=entry.get("url"),
             source_app=entry.get("source_app"),
             needs_review=entry.get("needs_review", False),
         )

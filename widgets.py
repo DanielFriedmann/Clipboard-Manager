@@ -178,9 +178,12 @@ class Tooltip:
             # nie über den linken oder oberen Rand hinaus
             x = max(x, left + 8)
             y = max(y, top + 8)
+        else:
+            # rechts neben dem Bereich, senkrecht mittig
+            x = area.winfo_rootx() + area.winfo_width() + 8
+            y = area.winfo_rooty() + (area.winfo_height() - height) // 2
 
         self._window.geometry(f"+{x}+{y}")
-
         self._watch_id = area.after(TOOLTIP_WATCH_INTERVAL, self._watch)
 
     def hide(self):

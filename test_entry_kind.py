@@ -17,8 +17,8 @@ def test_round_trip_keeps_new_fields():
     item = ClipboardItem(ClipboardFormat.TEXT, "geheim123",
                          clipboard_group=history.default_group,
                          kind=EntryKind.PASSWORD, title="VPN-Portal",
-                         username="daniel", source_app="KeePass",
-                         needs_review=True)
+                         username="daniel", url="https://vpn.firma.de",
+                         source_app="KeePass", needs_review=True)
     history.history.append(item)
 
     loaded = history_from_dict(history_to_dict(history)).history[0]
@@ -29,6 +29,7 @@ def test_round_trip_keeps_new_fields():
     assert loaded.username == "daniel"
     assert loaded.source_app == "KeePass"
     assert loaded.needs_review
+    assert loaded.url == "https://vpn.firma.de"
 
 
 def test_old_entry_without_new_fields():
@@ -134,6 +135,17 @@ def test_mark_and_unmark_password():
     assert item.kind == EntryKind.LINK
     assert not item.needs_review
 
+def test_search_finds_url_and_remove_title_keeps_rest():
+    history = ClipboardHistory()
+    item = history.add_item("geheim", kind=EntryKind.PASSWORD)
+    history.rename_item(item, "VPN", "daniel", "https://vpn.firma.de")
+
+    assert history.get_history(search="vpn.firma") == [item]
+
+    history.rename_item(item, "", item.username, item.url)
+    assert item.title is None
+    assert item.url == "https://vpn.firma.de"
+    assert item.username == "daniel"
 
 if __name__ == "__main__":
     test_guess_kind()
@@ -147,4 +159,5 @@ if __name__ == "__main__":
     test_rename_clears_review_and_trims()
     test_rename_empty_removes_title()
     test_mark_and_unmark_password()
+    test_search_finds_url_and_remove_title_keeps_rest()
     print("alle Tests ok")

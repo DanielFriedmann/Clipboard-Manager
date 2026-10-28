@@ -112,7 +112,7 @@ def show_item_menu(widget, event, vm, item, on_edit):
     menu.add_command(label=edit_label, command=lambda: on_edit(item))
     if item.title:
         menu.add_command(label="Namen entfernen",
-                         command=lambda: vm.rename(item, "", item.username))
+                         command=lambda: vm.rename(item, "", item.username, item.url))
     menu.add_separator()
     if item.is_password:
         menu.add_command(label="Kein Passwort", command=lambda: vm.set_password(item, False))
@@ -1113,7 +1113,7 @@ def on_sidebar_toggle():
     sidebar.toggle_collapsed()
 
 def open_edit_dialog(item):
-    EditDialog(root, item, lambda title, username: vm.rename(item, title, username),
+    EditDialog(root, item, lambda title, username, url: vm.rename(item, title, username, url),
                icon_path=resource_path("icon.ico"))
 
 #  Daten

@@ -3,7 +3,7 @@ from datetime import datetime
 
 def _matches(item, term):
     # Passwörter nie über ihren Inhalt finden
-    fields = [item.title, item.username, item.source_app]
+    fields = [item.title, item.username, item.url, item.source_app]
     if not item.is_password:
         fields.append(item.content)
     return any(term in field.lower() for field in fields if field)
@@ -20,7 +20,6 @@ def _content_key(item):
     if item.is_password:
         return ""
     return item.content.lower()
-
 
 class ClipboardHistory:
     def __init__(self):
@@ -51,10 +50,7 @@ class ClipboardHistory:
         )
         self.history.insert(0, clipboard_item)
         return clipboard_item
-        
-        
                 
-
     def remove_item(self, item):
         if item in self.history:
             self.history.remove(item) 
@@ -79,10 +75,11 @@ class ClipboardHistory:
     def toggle_favorite(self, item):
         item.is_favorite = not item.is_favorite
 
-    def rename_item(self, item, title, username=None):
+    def rename_item(self, item, title, username=None, url=None):
         item.title = _clean(title)
         if item.is_password:
             item.username = _clean(username)
+            item.url = _clean(url)
         item.needs_review = False
 
     def mark_password(self, item, is_password):

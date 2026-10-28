@@ -16,6 +16,7 @@ class EditDialog(ctk.CTkToplevel):
         self.on_save = on_save
         self.password_entry = None
         self.username_entry = None
+        self.url_entry = None
 
         self.title("Passwort benennen" if item.is_password else "Umbenennen")
         self.resizable(False, False)
@@ -30,6 +31,8 @@ class EditDialog(ctk.CTkToplevel):
         self.title_entry = self._add_field(body, "Name", item.title or "",
                                            "z. B. VPN-Portal" if item.is_password else "")
         if item.is_password:
+            self.url_entry = self._add_field(body, "Adresse (optional)",
+                                             item.url or "", "z. B. https://vpn.firma.de")
             self.username_entry = self._add_field(body, "Benutzername (optional)",
                                                   item.username or "")
             self._add_password(body, item.content)
@@ -45,7 +48,7 @@ class EditDialog(ctk.CTkToplevel):
         self.bind("<Return>", lambda _event: self._save())
         self.bind("<Escape>", lambda _event: self.destroy())
 
-        place_near(self, parent, width=380, height=310 if item.is_password else 170)
+        place_near(self, parent, width=380, height=374 if item.is_password else 170)
 
         # erst nach dem Anzeigen: Eingaben abfangen und Cursor ins Feld setzen
         self.after(100, self._activate)
@@ -92,5 +95,6 @@ class EditDialog(ctk.CTkToplevel):
 
     def _save(self):
         username = self.username_entry.get() if self.username_entry else None
-        self.on_save(self.title_entry.get(), username)
+        url = self.url_entry.get() if self.url_entry else None
+        self.on_save(self.title_entry.get(), username, url)
         self.destroy()
