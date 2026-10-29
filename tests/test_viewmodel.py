@@ -1,5 +1,6 @@
 from history import ClipboardHistory
 from viewmodel import ClipboardViewModel
+from clipboard_service import ClipboardCapture
 
 vm = ClipboardViewModel(ClipboardHistory())
 
@@ -7,7 +8,7 @@ calls = []
 vm.subscribe(lambda: calls.append("geändert"))
 
 for text in ["Rechnung März", "Hallo Welt", "Rechnung April"]:
-    vm.receive_text(text)
+    vm.receive_capture(ClipboardCapture(text))
 vm.process_incoming()
 
 print(vm.count_text, "   (erwartet: 3 Einträge)")
