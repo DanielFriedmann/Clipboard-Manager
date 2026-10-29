@@ -1,6 +1,6 @@
 from cryptography.exceptions import InvalidTag
 
-from vault import Vault, WrongPassword
+from vault import Vault, WrongPassword, DamagedData
 
 # Anlegen
 vault, code = Vault.create("geheim123")
@@ -51,5 +51,5 @@ manipulated = dict(entry, data=entry["data"][:-4] + "AAAA")
 try:
     vault.decrypt(manipulated)
     print("FEHLER: Manipulation nicht erkannt")
-except InvalidTag:
+except DamagedData:
     print("Manipulation korrekt erkannt")
