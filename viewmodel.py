@@ -22,9 +22,9 @@ TOOLTIP_MAX_CHARS = 1000
 class ClipboardViewModel:
     def __init__(self, history):
         self.history = history
-        self.service = None   
+        self.service = None
         self.checked = set()            # markierte Einträge
-        self.selected_group = None          
+        self.selected_group = None
 
         # Zustand der Ansicht
         self.sort_by = "priority"
@@ -34,6 +34,8 @@ class ClipboardViewModel:
 
         self._incoming = queue.Queue()   # Übergabe Service-Thread → GUI-Thread
         self._listeners = []
+        self._visible = None             # zwischengespeicherte sichtbare Liste
+        self._positions = None           # Eintrag → Platz in dieser Liste
 
     # Benachrichtigung / Abonnement
 
@@ -41,6 +43,9 @@ class ClipboardViewModel:
         self._listeners.append(callback)
 
     def _notify(self):
+        # Zustand hat sich geändert: sichtbare Liste beim nächsten Abruf neu bestimmen
+        self._visible = None
+        self._positions = None
         for callback in self._listeners:
             callback()
 
@@ -71,15 +76,17 @@ class ClipboardViewModel:
     @staticmethod
     def sidebar_name(name, max_length=16):
         return ClipboardViewModel._shorten(name, max_length)
-    
+
     def get_visible_items(self):
-        return self.history.get_history(
-            group=self.selected_group,
-            sort_by=self.sort_by,
-            descending=self.descending,
-            search=self.search,
-            favorites_only=self.favorites_only,
-        )
+        if self._visible is None:
+            self._visible = self.history.get_history(
+                group=self.selected_group,
+                sort_by=self.sort_by,
+                descending=self.descending,
+                search=self.search,
+                favorites_only=self.favorites_only,
+            )
+        return self._visible
 
     def is_checked(self, item):
         return item in self.checked
@@ -98,16 +105,15 @@ class ClipboardViewModel:
         return bool(visible) and all(item in self.checked for item in visible)
 
     def position(self, item):
-        # Platz in der eigenen Reihenfolge, ab 1 gezählt
-        return self.history.history.index(item) + 1
+        # Platz in der angezeigten Liste, ab 1 gezählt
+        if self._positions is None:
+            self._positions = {entry: index + 1
+                               for index, entry in enumerate(self.get_visible_items())}
+        return self._positions.get(item, 0)
 
     @staticmethod
     def datetime_text(item):
         return item.created_at.strftime("%d.%m.%Y %H:%M")
-
-    def _prune_checked(self):
-        # Markierungen gelöschter Einträge entfernen
-        self.checked &= set(self.history.history)
 
     @property
     def is_filtering(self):
@@ -215,7 +221,7 @@ class ClipboardViewModel:
     def group_initial(group):
         name = group.name.strip() if group else ""
         return name[:1].upper() or "?"
-    
+
     @staticmethod
     def group_name(item, max_length=None):
         name = item.clipboard_group.name if item.clipboard_group else ""
@@ -253,15 +259,16 @@ class ClipboardViewModel:
 
     @property
     def default_group(self):
-        return self.history.default_group
+        return self.history.get_default_group()
 
     @property
     def custom_groups(self):
-        return [group for group in self.history.groups if group is not self.history.default_group]
+        default = self.history.get_default_group()
+        return [group for group in self.history.list_groups() if group is not default]
 
     def group_count(self, group):
         # None zählt alle Einträge
-        return len(self.history.get_history(group=group))
+        return self.history.count(group)
 
     @property
     def title_text(self):
@@ -273,7 +280,6 @@ class ClipboardViewModel:
 
     def group_tooltip(self, group, name):
         return f"{name} · {self.entries_text(self.group_count(group))}"
-    
 
     # Ansicht
 
@@ -294,7 +300,6 @@ class ClipboardViewModel:
         self._notify()
 
     def sort_by_column(self, sort_by):
-
         if self.sort_by == sort_by:
             self.descending = not self.descending
         else:
@@ -309,8 +314,8 @@ class ClipboardViewModel:
         self.service.set_text(item.content, sensitive=item.is_password)
 
     def delete(self, item):
-        self.history.remove_item(item)
-        self._prune_checked()
+        self.history.remove_items([item])
+        self.checked.discard(item)
         self._notify()
 
     def toggle_favorite(self, item):
@@ -332,8 +337,8 @@ class ClipboardViewModel:
         self._notify()
 
     def delete_visible(self):
-        self.history.clear_items(self.get_visible_items())
-        self._prune_checked()
+        removed = self.history.clear_items(self.get_visible_items())
+        self.checked -= set(removed)
         self._notify()
 
     def toggle_checked(self, item):
@@ -352,9 +357,9 @@ class ClipboardViewModel:
         self._notify()
 
     def delete_checked(self):
-        for item in self.checked_visible():
-            self.history.remove_item(item)
-        self._prune_checked()
+        items = self.checked_visible()
+        self.history.remove_items(items)
+        self.checked -= set(items)
         self._notify()
 
     def select_group(self, group):
@@ -367,7 +372,7 @@ class ClipboardViewModel:
 
     def select_group_by_id(self, group_id):
         # unbekannte oder fehlende ID → "Alle Einträge"
-        group = next((g for g in self.history.groups if g.id == group_id), None)
+        group = next((g for g in self.history.list_groups() if g.id == group_id), None)
         self.select_group(group)
 
     @property
@@ -389,9 +394,7 @@ class ClipboardViewModel:
         self._notify()
 
     def assign_items_to_group(self, items, group):
-        # rückwärts, damit die Reihenfolge der Einträge erhalten bleibt
-        for item in reversed(items):
-            self.history.assign_item_to_group(item, group)
+        self.history.assign_items_to_group(items, group)
         self.checked -= set(items)
         self._notify()
 

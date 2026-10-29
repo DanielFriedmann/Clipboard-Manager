@@ -1,5 +1,7 @@
 from models import ClipboardGroup, ClipboardItem, ClipboardFormat, EntryKind, guess_kind
+from repository import EntryRepository
 from datetime import datetime
+
 
 def _matches(item, term):
     # Passwörter nie über ihren Inhalt finden
@@ -8,10 +10,12 @@ def _matches(item, term):
         fields.append(item.content)
     return any(term in field.lower() for field in fields if field)
 
+
 def _clean(text):
     # leere Eingabe heißt: kein Wert
     text = (text or "").strip()
     return text or None
+
 
 def _content_key(item):
     # sortiert nach dem, was man sieht
@@ -20,6 +24,7 @@ def _content_key(item):
     if item.is_password:
         return ""
     return item.content.lower()
+
 
 def _position_between(before, after):
     # Position zwischen zwei Nachbarn; None heißt: kein Nachbar auf dieser Seite
@@ -51,13 +56,17 @@ def _place(objects, obj, index):
     else:
         obj.position = position
 
-class ClipboardHistory:
+
+class ClipboardHistory(EntryRepository):
     def __init__(self):
         self.history = []
         self.default_group = ClipboardGroup(name="Unsortiert")
         self.groups = [self.default_group]
 
-    def add_item(self, text, kind=EntryKind.TEXT, source_app=None, needs_review=False):
+    # Einträge ändern
+
+    def add_item(self, text, kind=None, source_app=None, needs_review=False):
+        kind = kind or EntryKind.TEXT
         existing = next((item for item in self.history if item.content == text), None)
 
         if existing is not None:
@@ -80,10 +89,14 @@ class ClipboardHistory:
         )
         _place(self.history, clipboard_item, 0)   # ganz nach oben
         return clipboard_item
-                
+
     def remove_item(self, item):
         if item in self.history:
-            self.history.remove(item) 
+            self.history.remove(item)
+
+    def remove_items(self, items):
+        for item in items:
+            self.remove_item(item)
 
     def move_item(self, item, target, after=False):
         if item is target:
@@ -118,8 +131,27 @@ class ClipboardHistory:
             item.kind = guess_kind(item.content)
             item.needs_review = False
 
+    def clear_items(self, items):
+        removed = [item for item in items if not item.is_favorite]
+        self.remove_items(removed)
+        return removed
+
+    def clear_history(self, group=None):
+        if group is None:
+            self.history = [
+                item for item in self.history
+                if item.is_favorite or item.clipboard_group is not self.default_group
+            ]
+        else:
+            self.history = [
+                item for item in self.history
+                if item.clipboard_group is not group or item.is_favorite
+            ]
+
+    # Einträge lesen
+
     def get_history(self, group=None, sort_by="priority", descending=False,
-                search="", favorites_only=False):
+                    search="", favorites_only=False):
         items = list(self.history)
 
         # 1. Filter, jeder baut auf dem vorherigen auf
@@ -149,27 +181,18 @@ class ClipboardHistory:
 
         return items
 
-    def clear_items(self, items):
-        for item in items:
-            if not item.is_favorite:
-                self.remove_item(item)
-
-    def clear_history(self, group=None):
+    def count(self, group=None):
         if group is None:
-        
-            self.history = [
-            item for item in self.history
-            if item.is_favorite or item.clipboard_group is not self.default_group
-            ]
-
-        else:
-        
-            self.history = [
-            item for item in self.history
-            if item.clipboard_group is not group or item.is_favorite
-            ]
+            return len(self.history)
+        return sum(1 for item in self.history if item.clipboard_group is group)
 
     # Gruppenverwaltung
+
+    def get_default_group(self):
+        return self.default_group
+
+    def list_groups(self):
+        return list(self.groups)   # Kopie, damit niemand die Liste von außen verändert
 
     def add_group(self, name, color="#9e9e9e"):
         if any(group.name.lower() == name.lower() for group in self.groups):
@@ -195,6 +218,11 @@ class ClipboardHistory:
         self.history.remove(item)
         _place(self.history, item, 0)
 
+    def assign_items_to_group(self, items, group):
+        # rückwärts, damit die Reihenfolge der Einträge erhalten bleibt
+        for item in reversed(items):
+            self.assign_item_to_group(item, group)
+
     def move_group(self, group, target, after=False):
         if group is target or group is self.default_group or target is self.default_group:
             return
@@ -209,10 +237,10 @@ class ClipboardHistory:
                 index += 1
         _place(self.groups, group, index)
 
-        
+    # Ausgabe zum Testen
+
     def print_history(self):
-        print("--------------------------------")
         print("Clipboard History:")
         for item in self.history:
-            print(f"Format: {item.clipboard_format}, Content: {item.content}, Created At: {item.created_at}, Favorite: {item.is_favorite}")
-    
+            print(f"Format: {item.clipboard_format}, Content: {item.content}, "
+                  f"Created At: {item.created_at}, Favorite: {item.is_favorite}")
