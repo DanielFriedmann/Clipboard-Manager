@@ -21,6 +21,36 @@ def _content_key(item):
         return ""
     return item.content.lower()
 
+def _position_between(before, after):
+    # Position zwischen zwei Nachbarn; None heißt: kein Nachbar auf dieser Seite
+    if before is None and after is None:
+        return 0.0
+    if before is None:
+        return after.position - 1.0
+    if after is None:
+        return before.position + 1.0
+    return (before.position + after.position) / 2
+
+
+def _renumber(objects):
+    # Lücken neu verteilen, wenn Kommazahlen zu eng beieinander liegen
+    for index, obj in enumerate(objects):
+        obj.position = float(index)
+
+
+def _place(objects, obj, index):
+    # obj an Stelle index in die sortierte Liste setzen und seine Position berechnen
+    before = objects[index - 1] if index > 0 else None
+    after = objects[index] if index < len(objects) else None
+    position = _position_between(before, after)
+    objects.insert(index, obj)
+    # Zahl liegt nicht mehr echt dazwischen: alles neu durchnummerieren
+    if (before is not None and position <= before.position) or \
+       (after is not None and position >= after.position):
+        _renumber(objects)
+    else:
+        obj.position = position
+
 class ClipboardHistory:
     def __init__(self):
         self.history = []
@@ -48,7 +78,7 @@ class ClipboardHistory:
             source_app=source_app,
             needs_review=needs_review,
         )
-        self.history.insert(0, clipboard_item)
+        _place(self.history, clipboard_item, 0)   # ganz nach oben
         return clipboard_item
                 
     def remove_item(self, item):
@@ -56,21 +86,18 @@ class ClipboardHistory:
             self.history.remove(item) 
 
     def move_item(self, item, target, after=False):
-        
         if item is target:
             return
 
-       
         self.history.remove(item)
 
-        
         if target is None:
-            self.history.append(item)               # ans Ende
+            index = len(self.history)               # ans Ende
         else:
             index = self.history.index(target)      # erst NACH dem Entfernen bestimmen
             if after:
                 index += 1
-            self.history.insert(index, item)        # direkt vor target
+        _place(self.history, item, index)
 
     def toggle_favorite(self, item):
         item.is_favorite = not item.is_favorite
@@ -148,7 +175,7 @@ class ClipboardHistory:
         if any(group.name.lower() == name.lower() for group in self.groups):
             raise ValueError(f"Gruppe mit dem Namen '{name}' existiert bereits.")
         new_group = ClipboardGroup(name=name, color=color)
-        self.groups.append(new_group)
+        _place(self.groups, new_group, len(self.groups))   # ans Ende
         return new_group
 
     def remove_group(self, group):
@@ -166,7 +193,7 @@ class ClipboardHistory:
         item.clipboard_group = group
 
         self.history.remove(item)
-        self.history.insert(0, item)
+        _place(self.history, item, 0)
 
     def move_group(self, group, target, after=False):
         if group is target or group is self.default_group or target is self.default_group:
@@ -175,12 +202,12 @@ class ClipboardHistory:
         self.groups.remove(group)
 
         if target is None:
-            self.groups.append(group)
+            index = len(self.groups)
         else:
             index = self.groups.index(target)
             if after:
                 index += 1
-            self.groups.insert(index, group)
+        _place(self.groups, group, index)
 
         
     def print_history(self):

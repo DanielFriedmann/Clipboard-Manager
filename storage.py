@@ -39,7 +39,8 @@ def history_to_dict(history):
         "version": DATA_VERSION,
         "default_group": history.default_group.id,
         "groups": [
-            {"id": group.id, "name": group.name, "color": group.color}
+            {"id": group.id, "name": group.name, "color": group.color,
+             "position": group.position}
             for group in history.groups
         ],
         "items": [
@@ -50,6 +51,7 @@ def history_to_dict(history):
                 "group": item.clipboard_group.id if item.clipboard_group else None,
                 "created_at": item.created_at.isoformat(),
                 "is_favorite": item.is_favorite,
+                "position": item.position,
                 "kind": item.kind.value,
                 "title": item.title,
                 "username": item.username,
@@ -70,8 +72,13 @@ def history_from_dict(data):
     # Gruppen in gespeicherter Reihenfolge anlegen und über ihre ID merken
     groups_by_id = {}
     groups = []
-    for entry in data.get("groups", []):
-        group = ClipboardGroup(name=entry["name"], color=entry["color"], id=entry["id"])
+    for index, entry in enumerate(data.get("groups", [])):
+        group = ClipboardGroup(
+            name=entry["name"],
+            color=entry["color"],
+            id=entry["id"],
+            position=entry.get("position", float(index)),
+        )
         groups_by_id[group.id] = group
         groups.append(group)
 
@@ -79,12 +86,14 @@ def history_from_dict(data):
     default = groups_by_id.get(data.get("default_group"))
     if default is None:
         default = history.default_group
+        # vor alle anderen Gruppen setzen
+        default.position = min((group.position for group in groups), default=0.0) - 1.0
         groups.insert(0, default)
     history.default_group = default
     history.groups = groups
 
-    # Einträge in gespeicherter Reihenfolge anhängen, nicht über add_item
-    for entry in data.get("items", []):
+    # Einträge anhängen, nicht über add_item
+    for index, entry in enumerate(data.get("items", [])):
         clipboard_format = ClipboardFormat[entry["format"]]
         item = ClipboardItem(
             clipboard_format=clipboard_format,
@@ -92,6 +101,7 @@ def history_from_dict(data):
             clipboard_group=groups_by_id.get(entry.get("group"), default),
             created_at=datetime.fromisoformat(entry["created_at"]),
             is_favorite=entry.get("is_favorite", False),
+            position=entry.get("position", float(index)),
             kind=_kind_from_entry(entry, clipboard_format),
             title=entry.get("title"),
             username=entry.get("username"),
@@ -104,8 +114,11 @@ def history_from_dict(data):
             item.id = entry["id"]
         history.history.append(item)
 
-    return history
+    # die Position ist maßgeblich, nicht die Reihenfolge in der Datei
+    history.history.sort(key=lambda item: item.position)
+    history.groups.sort(key=lambda group: group.position)
 
+    return history
 
 # Datei schreiben und lesen
 

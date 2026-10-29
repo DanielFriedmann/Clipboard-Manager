@@ -32,6 +32,7 @@ class ClipboardGroup:
     name: str
     color: str = "#9e9e9e"  # Defaultfarbe Grau
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    position: float = 0.0
 
 @dataclass(eq=False)
 class ClipboardItem:
@@ -40,6 +41,7 @@ class ClipboardItem:
     clipboard_group: ClipboardGroup | None = None
     created_at: datetime = field(default_factory = datetime.now)
     is_favorite: bool = False
+    position: float = 0.0
     kind: EntryKind = EntryKind.TEXT
     title: str | None = None
     username: str | None = None
