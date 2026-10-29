@@ -1,7 +1,7 @@
-; Installer für den Zwischenablagen Manager (Inno Setup 6)
+; Installer für den Zwischenablagen Manager (Inno Setup 7)
 
 #define MyAppName "Zwischenablagen Manager"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "dadanschel"
 #define MyAppExeName "Zwischenablagen-Manager.exe"
 ; muss zum Namen in single_instance.py passen (ohne "Local\")
@@ -57,6 +57,7 @@ begin
     DataDir := ExpandConstant('{userappdata}\ClipboardManager');
     if DirExists(DataDir) and not UninstallSilent then
       if MsgBox('Sollen auch Ihre gespeicherten Einträge, Gruppen und Einstellungen gelöscht werden?'
+                + #13#10#13#10 + 'Die Daten sind verschlüsselt und können danach nicht wiederhergestellt werden.'
                 + #13#10#13#10 + DataDir,
                 mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
         DelTree(DataDir, True, True, True);
