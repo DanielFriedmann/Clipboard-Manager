@@ -186,6 +186,9 @@ class ClipboardHistory(EntryRepository):
             return len(self.history)
         return sum(1 for item in self.history if item.clipboard_group is group)
 
+    def get_content(self, item):
+        return item.content
+
     # Gruppenverwaltung
 
     def get_default_group(self):

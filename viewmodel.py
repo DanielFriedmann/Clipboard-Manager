@@ -311,7 +311,11 @@ class ClipboardViewModel:
 
     def copy(self, item):
         # kein _notify: die Änderung kommt über den Service ohnehin zurück
-        self.service.set_text(item.content, sensitive=item.is_password)
+        self.service.set_text(self.history.get_content(item), sensitive=item.is_password)
+
+    def item_content(self, item):
+        # bei Passwörtern wird der Inhalt erst jetzt geholt
+        return self.history.get_content(item)
 
     def delete(self, item):
         self.history.remove_items([item])

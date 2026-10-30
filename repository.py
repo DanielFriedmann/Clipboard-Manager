@@ -38,6 +38,10 @@ class EntryRepository(ABC):
     def count(self, group=None):
         """Anzahl der Einträge einer Gruppe, None = alle."""
 
+    @abstractmethod
+    def get_content(self, item):
+        """Inhalt eines Eintrags; bei Passwörtern wird er erst jetzt geholt."""
+
     # Einträge ändern
 
     @abstractmethod

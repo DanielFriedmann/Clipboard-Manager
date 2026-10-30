@@ -20,6 +20,7 @@ from edit_dialog import EditDialog
 from login_view import LoginView
 from storage import read_vault_file, save_encrypted
 from api_client import ApiClient, ServiceUnavailable
+from api_repository import ApiRepository, push_to_service
 from service_runner import ServiceRunner
 from service.auth import load_or_create_token
 
@@ -989,7 +990,14 @@ history = login_result["history"]
 if login_result["is_new"] and not history.history and LOAD_DEMO_DATA:
     load_demo_data(history)
 
-vm = ClipboardViewModel(history)
+if USE_API:
+    # Übergang bis 5c: geladenen Stand an den Dienst geben, ab jetzt speichert nur noch er
+    push_to_service(api, vault, history)
+    repository = ApiRepository(api, vault)
+else:
+    repository = history
+
+vm = ClipboardViewModel(repository)
 service = ClipboardService(vm.receive_capture)
 vm.service = service
 
@@ -1151,8 +1159,9 @@ def on_sidebar_toggle():
     sidebar.toggle_collapsed()
 
 def open_edit_dialog(item):
+    content = vm.item_content(item) if item.is_password else None
     EditDialog(root, item, lambda title, username, url: vm.rename(item, title, username, url),
-               icon_path=resource_path("icon.ico"))
+               icon_path=resource_path("icon.ico"), content=content)
 
 #  Daten
 
@@ -1176,10 +1185,11 @@ def schedule_save():
     pending_save["job"] = root.after(SAVE_DELAY, save_now)
 
 def on_close():
-    # ausstehendes Speichern sofort erledigen
-    if pending_save["job"] is not None:
-        root.after_cancel(pending_save["job"])
-    save_now()
+    # ohne Dienst: ausstehendes Speichern sofort erledigen
+    if not USE_API:
+        if pending_save["job"] is not None:
+            root.after_cancel(pending_save["job"])
+        save_now()
 
     # Einstellungen festhalten
 
@@ -1278,7 +1288,8 @@ hint_label.pack(side="bottom", fill="x", padx=16, pady=(8, 12))
 # Start
 root.protocol("WM_DELETE_WINDOW", on_close)
 vm.subscribe(refresh_header)
-vm.subscribe(schedule_save)
+if not USE_API:
+    vm.subscribe(schedule_save)   # mit Dienst wird jede Änderung sofort gespeichert
 card_view.refresh()
 table_view.refresh()
 refresh_header()
