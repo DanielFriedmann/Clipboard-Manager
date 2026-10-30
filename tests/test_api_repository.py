@@ -4,7 +4,7 @@ import tempfile
 from fastapi.testclient import TestClient
 
 from api_client import ApiClient
-from api_repository import ApiRepository, push_to_service
+from api_repository import ApiRepository, import_history
 from clipboard_service import ClipboardCapture
 from history import ClipboardHistory
 from models import EntryKind
@@ -21,7 +21,7 @@ def make_repository(history=None):
     path = os.path.join(tempfile.mkdtemp(), "vault.json")
     app = create_app(EntryStore(path), TOKEN)
     api = ApiClient(TOKEN, client=TestClient(app))
-    push_to_service(api, VAULT, history or ClipboardHistory())
+    import_history(api, VAULT, history or ClipboardHistory())
     return ApiRepository(api, VAULT), api, path
 
 

@@ -4,7 +4,7 @@ from datetime import datetime
 from history import _clean, _content_key, _matches, _place, _position_between
 from models import ClipboardFormat, ClipboardGroup, ClipboardItem, EntryKind, guess_kind
 from repository import EntryRepository
-from storage import (DETAIL_FIELDS, VAULT_VERSION, _group_to_sealed, _item_to_sealed, _seal,
+from storage import (DETAIL_FIELDS, _group_to_sealed, _item_to_sealed, _seal,
                      _unseal, vault_to_dict)
 
 # diese Sortierungen kann der Service selbst, die anderen braucht Klartext
@@ -18,20 +18,15 @@ def _kind(value):
         return EntryKind.TEXT
 
 
-def push_to_service(api, vault, history):
-    # Übergang bis 5c: den beim Anmelden geladenen Stand an den Dienst übergeben
-    info = api.get("/v1/vault")
-    if info["header"] is None or info["version"] < VAULT_VERSION or not api.get("/v1/groups"):
-        data = vault_to_dict(history, vault)
-        api.post("/v1/import", json={
-            "header": data["vault"],
-            "default_group": data["default_group"],
-            "groups": data["groups"],
-            "items": data["items"],
-        })
-    else:
-        # z. B. nach "Passwort vergessen": neuen Header übernehmen
-        api.put("/v1/vault", json={"header": vault.header, "default_group": info["default_group"]})
+def import_history(api, vault, history):
+    # ganzen Verlauf einzeln verschlüsselt an den Dienst übergeben (neu oder alte Datei)
+    data = vault_to_dict(history, vault)
+    api.post("/v1/import", json={
+        "header": data["vault"],
+        "default_group": data["default_group"],
+        "groups": data["groups"],
+        "items": data["items"],
+    })
 
 
 class ApiRepository(EntryRepository):

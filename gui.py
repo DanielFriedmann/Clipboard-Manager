@@ -6,6 +6,9 @@ import tkinter.font as tkfont
 import ctypes
 import os
 import sys
+import time
+import traceback
+
 
 import single_instance
 
@@ -19,8 +22,8 @@ from viewmodel import ClipboardViewModel, MASK
 from edit_dialog import EditDialog
 from login_view import LoginView
 from storage import read_vault_file, save_encrypted
-from api_client import ApiClient, ServiceUnavailable
-from api_repository import ApiRepository, push_to_service
+from api_client import ApiClient, ApiError, ServiceUnavailable
+from startup import open_api_data, open_file_data, read_header_from_service
 from service_runner import ServiceRunner
 from service.auth import load_or_create_token
 
@@ -945,25 +948,76 @@ def stop_service():
     if service_runner is not None:
         service_runner.stop()
 
+# Fehler des Speicherdienstes während der Benutzung im Fenster melden
 
-# Tresor lesen: eine beschädigte Datei wird nie überschrieben
+SERVICE_MESSAGE_PAUSE = 30   # Sekunden zwischen zwei Meldungen
+last_service_message = {"time": None}
+
+
+def show_service_problem(error):
+    if isinstance(error, ServiceUnavailable):
+        try:
+            if service_runner is not None:
+                service_runner.ensure_running()
+            text = ("Der Speicherdienst war kurz nicht erreichbar und wurde neu gestartet.\n"
+                    "Bitte die letzte Aktion wiederholen.")
+        except ServiceUnavailable as again:
+            text = f"Der Speicherdienst ist nicht erreichbar.\n\n{again}"
+    else:
+        text = f"Der Speicherdienst hat einen Fehler gemeldet ({error.status}):\n{error.detail}"
+
+    # nicht bei jedem Fehler erneut melden, z. B. wenn er alle 100 ms auftritt
+    now = time.monotonic()
+    if last_service_message["time"] is not None and \
+       now - last_service_message["time"] < SERVICE_MESSAGE_PAUSE:
+        return
+    last_service_message["time"] = now
+    messagebox.showwarning("Zwischenablagen Manager", text, parent=root)
+
+
+def report_callback_error(exc_type, error, tb):
+    # Fehler aus Klicks und after-Aufrufen: Dienst-Probleme im Fenster, alles andere wie bisher
+    if isinstance(error, (ServiceUnavailable, ApiError)):
+        show_service_problem(error)
+    else:
+        traceback.print_exception(exc_type, error, tb)
+
+
+root.report_callback_exception = report_callback_error
+
+# Tresor-Header lesen: eine beschädigte Datei wird nie überschrieben
+vault_content = None
 try:
-    vault_content = read_vault_file()
-except (OSError, ValueError) as error:
+    if USE_API:
+        header = read_header_from_service(api)
+    else:
+        vault_content = read_vault_file()
+        header = vault_content["vault"] if vault_content else None
+except (OSError, ValueError, ApiError, ServiceUnavailable) as error:
     messagebox.showerror("Zwischenablagen Manager",
                          "Die Datendatei konnte nicht gelesen werden und wurde nicht verändert.\n\n"
                          f"{error}", parent=root)
+    stop_service()
     root.destroy()
     sys.exit(1)
 
-# Anmeldung: wartet, bis der Benutzer angemeldet ist
+# Anmeldung: wartet, bis der Benutzer angemeldet ist und die Daten offen sind
 login_result = {}
 login_done = tk.BooleanVar(value=False)
 
 
-def on_login_success(vault, history, is_new):
-    login_result.update(vault=vault, history=history, is_new=is_new)
+def on_unlocked(vault, is_new, header_changed):
+    # liefert None bei Erfolg, sonst einen Fehlertext für die Anmeldeseite
+    try:
+        if USE_API:
+            repository = open_api_data(api, vault, is_new, header_changed)
+        else:
+            repository = open_file_data(vault_content, vault, is_new, header_changed)
+    except (OSError, ValueError, ApiError, ServiceUnavailable) as error:
+        return f"Die Daten konnten nicht geöffnet werden: {error}"
+    login_result.update(vault=vault, repository=repository, is_new=is_new)
     login_done.set(True)
+    return None
 
 
 def cancel_login():
@@ -973,7 +1027,7 @@ def cancel_login():
 
 
 root.protocol("WM_DELETE_WINDOW", cancel_login)
-login_view = LoginView(root, vault_content, on_login_success)
+login_view = LoginView(root, header, on_unlocked)
 login_view.place(relx=0, rely=0, relwidth=1, relheight=1)
 root.update()
 root.wait_variable(login_done)
@@ -986,16 +1040,9 @@ if login_result.get("cancelled"):
 login_view.destroy()
 
 vault = login_result["vault"]
-history = login_result["history"]
-if login_result["is_new"] and not history.history and LOAD_DEMO_DATA:
-    load_demo_data(history)
-
-if USE_API:
-    # Übergang bis 5c: geladenen Stand an den Dienst geben, ab jetzt speichert nur noch er
-    push_to_service(api, vault, history)
-    repository = ApiRepository(api, vault)
-else:
-    repository = history
+repository = login_result["repository"]
+if login_result["is_new"] and LOAD_DEMO_DATA and repository.count() == 0:
+    load_demo_data(repository)
 
 vm = ClipboardViewModel(repository)
 service = ClipboardService(vm.receive_capture)
@@ -1174,7 +1221,7 @@ layout = {"narrow": False, "auto_collapsed": False}
 def save_now():
     pending_save["job"] = None
     try:
-        save_encrypted(history, vault)
+        save_encrypted(repository, vault)
     except OSError as error:
         print(f"Speichern fehlgeschlagen: {error}")
 
