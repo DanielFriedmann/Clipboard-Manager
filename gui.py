@@ -19,6 +19,15 @@ from viewmodel import ClipboardViewModel, MASK
 from edit_dialog import EditDialog
 from login_view import LoginView
 from storage import read_vault_file, save_encrypted
+from api_client import ApiClient, ServiceUnavailable
+from service_runner import ServiceRunner
+from service.auth import load_or_create_token
+
+# Dieselbe Datei startet auch den Speicherdienst (wichtig für die .exe)
+if "--service" in sys.argv:
+    from service.__main__ import run
+    run()
+    sys.exit(0)
 
 # Erscheinungsbild 
 
@@ -76,6 +85,8 @@ SORT_OPTIONS = {
 SORT_LABELS = {value: label for label, value in SORT_OPTIONS.items()}   # umgekehrte Richtung
 
 LOAD_DEMO_DATA = False   # beim Starten Demo-Daten laden
+USE_API = True   # Speicherdienst verwenden (False = alter Weg nur über die Datei)
+
 APP_VERSION = "1.2.0"
 APP_TITLE = f"Zwischenablagen Manager  {APP_VERSION}"
 APP_ID = "B5A469AA-EA94-4DAE-BFEB-B00931C8C895"
@@ -914,6 +925,26 @@ root.minsize(420, 420)
 root.geometry(settings["window_geometry"] or DEFAULT_GEOMETRY)
 root.bind("<Control-b>", lambda _event: on_sidebar_toggle())
 
+# Speicherdienst starten (in 5a läuft er nur mit, die Daten kommen noch aus der Datei)
+service_runner = None
+if USE_API:
+    api = ApiClient(load_or_create_token())
+    service_runner = ServiceRunner(api)
+    try:
+        service_runner.ensure_running()
+    except ServiceUnavailable as error:
+        messagebox.showerror("Zwischenablagen Manager",
+                             f"Der Speicherdienst konnte nicht gestartet werden.\n\n{error}",
+                             parent=root)
+        root.destroy()
+        sys.exit(1)
+
+
+def stop_service():
+    if service_runner is not None:
+        service_runner.stop()
+
+
 # Tresor lesen: eine beschädigte Datei wird nie überschrieben
 try:
     vault_content = read_vault_file()
@@ -935,8 +966,9 @@ def on_login_success(vault, history, is_new):
 
 
 def cancel_login():
-    root.destroy()
-    sys.exit(0)
+    # nur melden: das Beenden passiert nach wait_variable, nicht in diesem Callback
+    login_result["cancelled"] = True
+    login_done.set(True)
 
 
 root.protocol("WM_DELETE_WINDOW", cancel_login)
@@ -944,6 +976,12 @@ login_view = LoginView(root, vault_content, on_login_success)
 login_view.place(relx=0, rely=0, relwidth=1, relheight=1)
 root.update()
 root.wait_variable(login_done)
+
+if login_result.get("cancelled"):
+    stop_service()
+    root.destroy()
+    sys.exit(0)
+
 login_view.destroy()
 
 vault = login_result["vault"]
@@ -1159,9 +1197,8 @@ def on_close():
     except OSError as error:
         print(f"Einstellungen konnten nicht gespeichert werden: {error}")
 
+    stop_service()
     root.destroy()
-
-
 
 
 
