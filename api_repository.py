@@ -9,6 +9,7 @@ from storage import (DETAIL_FIELDS, _group_to_sealed, _item_to_sealed, _seal,
 
 # diese Sortierungen kann der Service selbst, die anderen braucht Klartext
 SERVER_SORTS = ("priority", "time", "favorite")
+MAX_PAGE = 1000   # mehr liefert der Service pro Anfrage nicht, darüber wird alles geladen
 
 
 def _kind(value):
@@ -116,8 +117,7 @@ class ApiRepository(EntryRepository):
 
     # Einträge lesen
 
-    def get_history(self, group=None, sort_by="priority", descending=False,
-                    search="", favorites_only=False):
+    def _params(self, group, sort_by, descending, favorites_only):
         server_sort = sort_by in SERVER_SORTS
         params = {"sort": sort_by if server_sort else "priority",
                   "descending": descending if server_sort else False}
@@ -125,8 +125,16 @@ class ApiRepository(EntryRepository):
             params["group_id"] = group.id
         if favorites_only:
             params["favorites_only"] = True
+        return params
 
-        page = self.api.get("/v1/entries", params=params)
+    def _remember_order(self, items, sort_by, descending):
+        if sort_by == "priority" and not descending:
+            self._order = items
+
+    def get_history(self, group=None, sort_by="priority", descending=False,
+                    search="", favorites_only=False):
+        page = self.api.get("/v1/entries", params=self._params(group, sort_by, descending,
+                                                                favorites_only))
         items = [self._to_item(raw) for raw in page["items"]]
 
         # Suche und diese Sortierungen brauchen Klartext, also hier in der App
@@ -139,9 +147,23 @@ class ApiRepository(EntryRepository):
             items = sorted(items, key=lambda item: item.clipboard_group.name.lower()
                            if item.clipboard_group else "", reverse=descending)
 
-        if sort_by == "priority" and not descending:
-            self._order = items
+        self._remember_order(items, sort_by, descending)
         return items
+
+    def get_page(self, group=None, sort_by="priority", descending=False,
+                 search="", favorites_only=False, limit=None):
+        needs_all = search or sort_by not in SERVER_SORTS or limit is None or limit > MAX_PAGE
+        if needs_all:
+            # alles laden und hier filtern, nur die ersten "limit" anzeigen
+            items = self.get_history(group, sort_by, descending, search, favorites_only)
+            return (items if limit is None else items[:limit]), len(items)
+
+        params = self._params(group, sort_by, descending, favorites_only)
+        params["limit"] = limit
+        page = self.api.get("/v1/entries", params=params)
+        items = [self._to_item(raw) for raw in page["items"]]
+        self._remember_order(items, sort_by, descending)
+        return items, page["total"]
 
     def count(self, group=None):
         if self._counts is None:

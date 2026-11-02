@@ -181,6 +181,11 @@ class ClipboardHistory(EntryRepository):
 
         return items
 
+    def get_page(self, group=None, sort_by="priority", descending=False,
+                 search="", favorites_only=False, limit=None):
+        items = self.get_history(group, sort_by, descending, search, favorites_only)
+        return (items if limit is None else items[:limit]), len(items)
+
     def count(self, group=None):
         if group is None:
             return len(self.history)

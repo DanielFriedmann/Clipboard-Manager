@@ -140,165 +140,255 @@ def show_item_menu(widget, event, vm, item, on_edit):
     menu.tk_popup(event.x_root, event.y_root)
 
 #  Klassen für Ansichten
-
-class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
-    def __init__(self, master, vm, sidebar, on_edit):
-        super().__init__(master, fg_color="transparent")
-        self.vm = vm
-        self.sidebar = sidebar
-        self.on_edit = on_edit
-        self.card_items = {}   # Kachel → Eintrag
-        self.drag = {"item": None, "start_y": 0, "active": False, "target": None}
-        vm.subscribe(self.refresh)   # bei jeder Änderung neu zeichnen
-
-    # Kachel zeichnen
-
-    def refresh(self):
-        self.card_items.clear()
-        for widget in self.winfo_children():
-            widget.destroy()
-
-        items = self.vm.get_visible_items()
-        if not items:
-            ctk.CTkLabel(self, text=self.vm.empty_text, font=FONT, text_color=MUTED).pack(pady=24)
-
-        for item in items:
-            self._create_card(item)
-
-    def _create_card(self, item):
-        card = ctk.CTkFrame(self, fg_color=CARD, corner_radius=8)
-        card.pack(fill="x", padx=4, pady=4)
+class Card(ctk.CTkFrame):  # eine Kachel, wird beim Neuzeichnen wiederverwendet
+    def __init__(self, view, item):
+        super().__init__(view, fg_color=CARD, corner_radius=8)
+        self.view = view
+        self.vm = view.vm
+        self.item = item
+        self._shown = None   # zuletzt angezeigter Stand, um unnötiges Zeichnen zu sparen
 
         # Spaltenaufteilung: nur die Vorschau wächst, rechts feste Breiten
-        card.grid_columnconfigure(1, weight=1)
-        card.grid_columnconfigure(2, minsize=96)
-        card.grid_columnconfigure(3, minsize=96)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure(2, minsize=96)
+        self.grid_columnconfigure(3, minsize=96)
 
         # Spalte 0: farbiger Streifen der Gruppe
-        stripe = ctk.CTkFrame(card, width=4, height=1, corner_radius=2,
-                              fg_color=self.vm.group_color(item))
-        stripe.grid(row=0, column=0, sticky="ns", padx=(6, 0), pady=8)
+        self.stripe = ctk.CTkFrame(self, width=4, height=1, corner_radius=2)
+        self.stripe.grid(row=0, column=0, sticky="ns", padx=(6, 0), pady=8)
 
-        # Spalte 1: Text in zwei Zeilen, verlangt keinen eigenen Platz und wird abgeschnitten
-        text_box = ctk.CTkFrame(card, fg_color="transparent")
-        text_box.grid(row=0, column=1, sticky="ew", padx=(12, 16), pady=6)
-        text_box.grid_columnconfigure(1, weight=1)
-        text_widgets = [text_box]
+        # Spalte 1: Text in zwei Zeilen; alle Teile einmal anlegen, später nur ein- und ausblenden
+        self.text_box = ctk.CTkFrame(self, fg_color="transparent")
+        self.text_box.grid(row=0, column=1, sticky="ew", padx=(12, 16), pady=6)
+        self.text_box.grid_columnconfigure(1, weight=1)
 
-        icon = self.vm.kind_icon(item)
-        if icon:
-            icon_label = ctk.CTkLabel(text_box, text=icon, font=FONT_KIND,
-                                      text_color=MUTED, width=18)
-            icon_label.grid(row=0, column=0, padx=(0, 8))
-            text_widgets.append(icon_label)
+        self.icon_label = ctk.CTkLabel(self.text_box, text="", font=FONT_KIND,
+                                       text_color=MUTED, width=18)
 
-        style = self.vm.text_style(item)
-        main_label = ctk.CTkLabel(text_box, text=self.vm.display_text(item),
-                                  font=CARD_FONTS[style],
-                                  text_color=MUTED if style == "placeholder" else TEXT,
-                                  anchor="w", justify="left", width=1)
-        main_label.grid(row=0, column=1, sticky="ew")
-        text_widgets.append(main_label)
+        self.main_label = ctk.CTkLabel(self.text_box, text="", font=FONT, text_color=TEXT,
+                                       anchor="w", justify="left", width=1)
+        self.main_label.grid(row=0, column=1, sticky="ew")
 
-        if item.is_password:
-            mask_label = ctk.CTkLabel(text_box, text=MASK, font=FONT_SMALL, text_color=MUTED)
-            mask_label.grid(row=0, column=2, padx=(12, 0))
-            text_widgets.append(mask_label)
+        self.mask_label = ctk.CTkLabel(self.text_box, text=MASK, font=FONT_SMALL, text_color=MUTED)
 
-        if item.needs_review:
-            ctk.CTkButton(text_box, text="Benennen", width=76, height=22, font=FONT_SMALL,
-                          command=lambda i=item: self.on_edit(i)).grid(row=0, column=3, padx=(12, 0))
+        self.review_button = ctk.CTkButton(self.text_box, text="Benennen", width=76, height=22,
+                                           font=FONT_SMALL,
+                                           command=lambda: self.view.on_edit(self.item))
 
-        source = self.vm.source_text(item)
-        if source:
-            source_label = ctk.CTkLabel(text_box, text=source, font=FONT_SMALL,
-                                        text_color=MUTED, anchor="w", width=1, height=16)
-            source_label.grid(row=1, column=1, columnspan=2, sticky="ew")
-            text_widgets.append(source_label)
+        self.source_label = ctk.CTkLabel(self.text_box, text="", font=FONT_SMALL,
+                                         text_color=MUTED, anchor="w", width=1, height=16)
 
         # Spalte 2: Uhrzeit über Datum, rechtsbündig
-        time_box = ctk.CTkFrame(card, fg_color="transparent")
+        time_box = ctk.CTkFrame(self, fg_color="transparent")
         time_box.grid(row=0, column=2, sticky="e", padx=(0, 8))
 
-        time_label = ctk.CTkLabel(time_box, text=self.vm.time_text(item), font=FONT_SMALL,
-                                  text_color=TEXT, width=88, height=18, anchor="e")
-        time_label.pack(anchor="e")
-        date_label = ctk.CTkLabel(time_box, text=self.vm.date_text(item), font=FONT_SMALL,
-                                  text_color=MUTED, width=88, height=18, anchor="e")
-        date_label.pack(anchor="e")
+        self.time_label = ctk.CTkLabel(time_box, text="", font=FONT_SMALL, text_color=TEXT,
+                                       width=88, height=18, anchor="e")
+        self.time_label.pack(anchor="e")
+        self.date_label = ctk.CTkLabel(time_box, text="", font=FONT_SMALL, text_color=MUTED,
+                                       width=88, height=18, anchor="e")
+        self.date_label.pack(anchor="e")
 
         # Spalte 3: Stern und X über dem Gruppennamen, rechtsbündig
-        action_box = ctk.CTkFrame(card, fg_color="transparent")
+        action_box = ctk.CTkFrame(self, fg_color="transparent")
         action_box.grid(row=0, column=3, sticky="e", padx=(0, 8))
 
         buttons = ctk.CTkFrame(action_box, fg_color="transparent")
         buttons.pack(anchor="e")
 
-        ctk.CTkButton(
-            buttons, text="★" if item.is_favorite else "☆", width=28, height=24,
-            fg_color="transparent", hover_color=CARD_HOVER,
-            text_color=ACCENT if item.is_favorite else MUTED,
-            command=lambda i=item: self.vm.toggle_favorite(i),
-        ).pack(side="left")
+        self.star_button = ctk.CTkButton(
+            buttons, text="☆", width=28, height=24,
+            fg_color="transparent", hover_color=CARD_HOVER, text_color=MUTED,
+            command=lambda: self.vm.toggle_favorite(self.item),
+        )
+        self.star_button.pack(side="left")
 
         ctk.CTkButton(
             buttons, text="✕", width=28, height=24,
             fg_color="transparent", hover_color=CARD_HOVER, text_color=MUTED,
-            command=lambda i=item: self.vm.delete(i),
+            command=lambda: self.vm.delete(self.item),
         ).pack(side="left")
 
         # in Gruppenansichten leer, aber gleich hoch, damit die Kachel nicht springt
-        group_text = self.vm.group_name(item, max_length=12) if self.vm.show_group else ""
-        group_label = ctk.CTkLabel(action_box, text=group_text, font=FONT_SMALL,
-                                   text_color=MUTED, width=96, height=18, anchor="e")
-        group_label.pack(anchor="e")
+        self.group_label = ctk.CTkLabel(action_box, text="", font=FONT_SMALL,
+                                        text_color=MUTED, width=96, height=18, anchor="e")
+        self.group_label.pack(anchor="e")
 
-        self.card_items[card] = item
-
-        # Klick, Ziehen und Hover auf allem außer den Buttons
-        for widget in (card, stripe, *text_widgets, time_box, time_label, date_label,
-                       action_box, buttons, group_label):
-            widget.bind("<ButtonPress-1>", lambda event, i=item: self._on_press(event, i))
-            widget.bind("<B1-Motion>", self._on_motion)
-            widget.bind("<ButtonRelease-1>", self._on_release)
-            widget.bind("<Enter>", lambda _event, c=card: c.configure(fg_color=CARD_HOVER))
-            widget.bind("<Leave>", lambda _event, c=card: self._on_card_leave(c))
-            widget.bind("<Button-3>", lambda event, i=item: self._open_menu(event, i))
+        # Klick, Ziehen und Hover auf allem außer den Buttons; immer mit dem aktuellen self.item
+        text_widgets = [self.text_box, self.icon_label, self.main_label,
+                        self.mask_label, self.source_label]
+        for widget in (self, self.stripe, *text_widgets, time_box, self.time_label,
+                       self.date_label, action_box, buttons, self.group_label):
+            widget.bind("<ButtonPress-1>", lambda event: self.view._on_press(event, self.item))
+            widget.bind("<B1-Motion>", self.view._on_motion)
+            widget.bind("<ButtonRelease-1>", self.view._on_release)
+            widget.bind("<Enter>", lambda _event: self.configure(fg_color=CARD_HOVER))
+            widget.bind("<Leave>", lambda _event: self.view._on_card_leave(self))
+            widget.bind("<Button-3>", lambda event: self.view._open_menu(event, self.item))
 
         # Tooltip erst jetzt, damit seine Bindungen die obigen ergänzen statt ersetzen
-        Tooltip([card, *text_widgets], self._tooltip_text(item, main_label),
-                delay=TEXT_TOOLTIP_DELAY, position="pointer",
-                wraplength=TEXT_TOOLTIP_WIDTH)
+        Tooltip([self, *text_widgets], self._tooltip_text, delay=TEXT_TOOLTIP_DELAY,
+                position="pointer", wraplength=TEXT_TOOLTIP_WIDTH)
 
-    #  Hover 
+        self.show_item(item)
 
-    def _on_card_leave(self, card):
-        x, y = card.winfo_pointerxy()
-        widget = card.winfo_containing(x, y)
-        if widget is None or not is_inside(widget, card):
-            card.configure(fg_color=CARD)
-
-    def _open_menu(self, event, item):
-        show_item_menu(self, event, self.vm, item, self.on_edit)
-
-    def _tooltip_text(self, item, label):
-        # wird erst beim Anzeigen aufgerufen, dann ist die Breite bekannt
-        def text():
-            if self.vm.always_tooltip(item) or self._is_cut(item, label):
-                return self.vm.tooltip_text(item)
-            return None
-        return text
+    # Anzeigen
 
     @staticmethod
-    def _is_cut(item, label):
+    def _show(widget, visible, **grid_options):
+        # grid_forget statt grid_remove: CustomTkinter blendet sonst bei
+        # geänderter Bildschirmskalierung versteckte Teile wieder ein
+        if visible:
+            if widget.winfo_manager() != "grid":
+                widget.grid(**grid_options)
+        else:
+            widget.grid_forget()
+
+    def show_item(self, item):
+        # Name nicht "update": das ist schon eine wichtige Tkinter-Methode
+        self.item = item
+        vm = self.vm
+        shown = (
+            vm.display_text(item), vm.text_style(item), vm.kind_icon(item),
+            item.is_password, item.needs_review, vm.source_text(item),
+            vm.time_text(item), vm.date_text(item), item.is_favorite,
+            vm.group_name(item, max_length=12) if vm.show_group else "",
+            vm.group_color(item),
+        )
+        if shown == self._shown:
+            return   # nichts geändert, nichts zeichnen
+        self._shown = shown
+        (text, style, icon, is_password, needs_review, source,
+         time_text, date_text, is_favorite, group_text, group_color) = shown
+
+        self.stripe.configure(fg_color=group_color)
+
+        self.icon_label.configure(text=icon)
+        self._show(self.icon_label, bool(icon), row=0, column=0, padx=(0, 8))
+
+        self.main_label.configure(text=text, font=CARD_FONTS[style],
+                                  text_color=MUTED if style == "placeholder" else TEXT)
+        self._show(self.mask_label, is_password, row=0, column=2, padx=(12, 0))
+        self._show(self.review_button, needs_review, row=0, column=3, padx=(12, 0))
+
+        self.source_label.configure(text=source)
+        self._show(self.source_label, bool(source), row=1, column=1, columnspan=2, sticky="ew")
+
+        self.time_label.configure(text=time_text)
+        self.date_label.configure(text=date_text)
+
+        self.star_button.configure(text="★" if is_favorite else "☆",
+                                   text_color=ACCENT if is_favorite else MUTED)
+        self.group_label.configure(text=group_text)
+
+    # Tooltip
+
+    def _tooltip_text(self):
+        # wird erst beim Anzeigen aufgerufen, dann ist die Breite bekannt
+        if self.vm.always_tooltip(self.item) or self._is_cut():
+            return self.vm.tooltip_text(self.item)
+        return None
+
+    def _is_cut(self):
+        label = self.main_label
         shown = label.cget("text")
-        if shown != item.content.strip():
+        if shown != (self.item.content or "").strip():
             return True   # gekürzt oder Zeilenumbrüche zusammengefasst
         # Achtung: _label ist ein internes Feld von CustomTkinter
         font = tkfont.Font(font=label._label.cget("font"))
         return font.measure(shown) > label.winfo_width()
+    
+MAX_CARDS = 300   # so viele Kacheln werden höchstens aufbewahrt, auch unsichtbare
 
-    # Drag & Drop 
+class CardView(ctk.CTkScrollableFrame):  # Kachel-Ansicht
+    def __init__(self, master, vm, sidebar, on_edit):
+        super().__init__(master, fg_color="transparent")
+        self.vm = vm
+        self.sidebar = sidebar
+        self.on_edit = on_edit
+        self.cards = {}        # Eintrags-ID → Kachel, wird wiederverwendet
+        self.card_items = {}   # Kachel → Eintrag, für Drag & Drop
+        self._packed = []      # zuletzt angezeigte Reihenfolge
+        self.drag = {"item": None, "start_y": 0, "active": False, "target": None}
+
+        # feste Elemente, werden nur ein- und ausgeblendet
+        self.empty_label = ctk.CTkLabel(self, text="", font=FONT, text_color=MUTED)
+        self.more_button = ctk.CTkButton(self, text="", height=32, font=FONT_SMALL,
+                                         fg_color="transparent", border_width=1, text_color=TEXT,
+                                         hover_color=CARD_HOVER, command=vm.load_more)
+
+        self._dirty = False                # veraltet, weil unsichtbar nicht gezeichnet
+        self.bind("<Map>", self._on_map)   # beim Einblenden nachholen
+
+        vm.subscribe(self.refresh)   # bei jeder Änderung neu zeichnen
+
+    # Zeichnen
+
+    def _on_map(self, _event):
+        if self._dirty:
+            self.refresh()
+
+    def refresh(self):
+        # unsichtbare Ansicht nicht zeichnen, nur vormerken
+        if not self.winfo_ismapped():
+            self._dirty = True
+            return
+        self._dirty = False
+
+        # Scrollposition: bei neuer Ansicht nach oben, sonst an derselben Stelle bleiben
+        # Achtung: _parent_canvas ist ein internes Feld von CustomTkinter
+        canvas = self._parent_canvas
+        top = 0.0 if self.vm.scroll_to_top else canvas.yview()[0]
+        old_height = self.winfo_reqheight()
+
+        items = self.vm.get_visible_items()
+        wanted = {item.id for item in items}
+
+        # nicht angezeigte Kacheln behalten (schnelles Zurückwechseln), aber nicht unbegrenzt
+        hidden = [item_id for item_id in self.cards if item_id not in wanted]
+        for item_id in hidden[:max(0, len(self.cards) - MAX_CARDS)]:
+            self.cards.pop(item_id).destroy()
+
+        # vorhandene Kacheln aktualisieren, nur fehlende neu bauen
+        order = []
+        for item in items:
+            card = self.cards.get(item.id)
+            if card is None:
+                card = Card(self, item)
+                self.cards[item.id] = card
+            else:
+                card.show_item(item)
+            order.append(card)
+        self.card_items = {card: card.item for card in order}
+
+        if not items:
+            self.empty_label.configure(text=self.vm.empty_text)
+            order.append(self.empty_label)
+        if self.vm.has_more:
+            self.more_button.configure(text=self.vm.more_text)
+            order.append(self.more_button)
+
+        # nur neu anordnen, wenn sich die Reihenfolge geändert hat
+        if order != self._packed:
+            for widget in self._packed:
+                if widget.winfo_exists():
+                    widget.pack_forget()
+            for widget in order:
+                if widget is self.empty_label:
+                    widget.pack(pady=24)
+                elif widget is self.more_button:
+                    widget.pack(fill="x", padx=4, pady=(4, 8))
+                else:
+                    widget.pack(fill="x", padx=4, pady=4)
+            self._packed = order
+
+        # dieselbe Stelle wie vorher, auch wenn die Liste jetzt länger ist
+        self.update_idletasks()
+        new_height = self.winfo_reqheight()
+        if new_height > 0:
+            canvas.yview_moveto(top * old_height / new_height)
+
+    # Drag & Drop
 
     def _find_card(self, widget):
         while widget is not None:
@@ -370,6 +460,17 @@ class CardView(ctk.CTkScrollableFrame):  #  Kachel-Ansicht
             middle = card.winfo_rooty() + card.winfo_height() / 2
             self.vm.move(item, self.card_items[card], after=event.y_root > middle)
 
+    # Hover und Menü
+
+    def _on_card_leave(self, card):
+        x, y = card.winfo_pointerxy()
+        widget = card.winfo_containing(x, y)
+        if widget is None or not is_inside(widget, card):
+            card.configure(fg_color=CARD)
+
+    def _open_menu(self, event, item):
+        show_item_menu(self, event, self.vm, item, self.on_edit)
+
 class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
     def __init__(self, master, vm, sidebar, on_edit):
         super().__init__(master, fg_color="transparent")
@@ -379,6 +480,7 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
         self.on_edit = on_edit
         self.row_items = {}   # Zeilen-ID → Eintrag
         self.row_tags = {}    # Zeilen-ID → Stil-Tags, damit "drop" sie nicht überschreibt
+        self.more_row = None   # Zeile "Weitere laden" am Ende
         self.drag = {"item": None, "start_y": 0, "active": False, "target_row": None}
 
         ttk.Style().theme_use("clam")
@@ -409,23 +511,36 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
                                position="pointer", wraplength=TEXT_TOOLTIP_WIDTH)
         self.tree.bind("<Motion>", self._on_hover, add="+")
 
+        self._dirty = False                # veraltet, weil unsichtbar nicht gezeichnet
+        self.bind("<Map>", self._on_map)   # beim Einblenden nachholen
         vm.subscribe(self.refresh)
 
     #  Zeichnen 
+    def _on_map(self, _event):
+        if self._dirty:
+            self.refresh()
 
     def refresh(self):
+        # unsichtbare Ansicht nicht zeichnen, nur vormerken
+        if not self.winfo_ismapped():
+            self._dirty = True
+            return
+        self._dirty = False
         self._apply_style()
-
-        self.tree.configure(displaycolumns=self.vm.visible_columns)
 
         visible = self.vm.visible_columns
         if self.compact:
             visible = [column for column in visible if column in COMPACT_COLUMNS]
         self.tree.configure(displaycolumns=visible)
 
+        # Scrollposition: bei neuer Ansicht nach oben, sonst dieselbe Zeile oben behalten
+        top = 0.0 if self.vm.scroll_to_top else self.tree.yview()[0]
+        old_rows = len(self.tree.get_children())
+
         self.tree.delete(*self.tree.get_children())
         self.row_items.clear()
         self.row_tags.clear()
+        self.more_row = None
 
         self._hover_row = None   # alte Zeilen-IDs gibt es nicht mehr
 
@@ -442,6 +557,15 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
             row_id = self.tree.insert("", "end", values=values, tags=tags)
             self.row_items[row_id] = item
             self.row_tags[row_id] = tags
+
+        # letzte Zeile: weitere Einträge nachladen
+        if self.vm.has_more:
+            values = ("", "", f"▼  {self.vm.more_text}", "", "", "")
+            self.more_row = self.tree.insert("", "end", values=values, tags=("more",))
+
+        new_rows = len(self.tree.get_children())
+        if new_rows and old_rows:
+            self.tree.yview_moveto(top * old_rows / new_rows)
 
         for col_id, title, _width, sort_key in COLUMNS:
             text = title
@@ -475,6 +599,7 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
         self.tree.tag_configure("title", font=("Segoe UI Semibold", 10))
         self.tree.tag_configure("placeholder", font=("Segoe UI", 10, "italic"),
                                 foreground="#a0a0a0" if dark else "#6b6b6b")
+        self.tree.tag_configure("more", foreground="#4ca0e0" if dark else "#0067c0")
 
     # Hilfsfunktionen 
 
@@ -526,6 +651,10 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
         if not row_id:
             return
 
+        if row_id == self.more_row:
+            self.vm.load_more()
+            return "break"
+
         item = self.row_items[row_id]
         col_id = self._column_id_at(event.x)
 
@@ -555,7 +684,8 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
 
         is_single = len(self._drag_items()) == 1
         if sidebar_row is None and is_single and self.vm.can_drag:
-            self._set_drop_row(self.tree.identify_row(event.y) or None)
+            target = self.tree.identify_row(event.y)
+            self._set_drop_row(target if target in self.row_items else None)
         else:
             self._set_drop_row(None)
         return "break"
@@ -586,7 +716,7 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
             return
 
         row_id = self.tree.identify_row(event.y)
-        if row_id:
+        if row_id in self.row_items:
             _x, y, _width, height = self.tree.bbox(row_id)
             self.vm.move(item, self.row_items[row_id], after=event.y > y + height / 2)
         elif self.tree.identify_region(event.x, event.y) == "nothing":
@@ -596,12 +726,12 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
         if self.tree.identify_region(event.x, event.y) != "cell":
             return
         row_id = self.tree.identify_row(event.y)
-        if row_id and self._column_id_at(event.x) not in ("check", "favorite"):
-            self.vm.copy(self.row_items[row_id])  
+        if row_id in self.row_items and self._column_id_at(event.x) not in ("check", "favorite"):
+            self.vm.copy(self.row_items[row_id])
 
     def _on_right_click(self, event):
         row_id = self.tree.identify_row(event.y)
-        if not row_id:
+        if row_id not in self.row_items:
             return
         self.tree.selection_set(row_id)   # zeigt, welche Zeile gemeint ist
         show_item_menu(self, event, self.vm, self.row_items[row_id], self.on_edit)
@@ -1018,7 +1148,6 @@ def on_unlocked(vault, is_new, header_changed):
     login_result.update(vault=vault, repository=repository, is_new=is_new)
     login_done.set(True)
     return None
-
 
 def cancel_login():
     # nur melden: das Beenden passiert nach wait_variable, nicht in diesem Callback

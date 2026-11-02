@@ -18,6 +18,8 @@ KIND_ICONS = {
 TOOLTIP_MAX_LINES = 15
 TOOLTIP_MAX_CHARS = 1000
 
+PAGE_SIZE = 50   # so viele Einträge werden auf einmal geladen
+
 
 class ClipboardViewModel:
     def __init__(self, history):
@@ -37,6 +39,10 @@ class ClipboardViewModel:
         self._visible = None             # zwischengespeicherte sichtbare Liste
         self._positions = None           # Eintrag → Platz in dieser Liste
 
+        self._total = 0                  # Treffer insgesamt, auch nicht geladene
+        self._limit = PAGE_SIZE          # so viele werden gerade angezeigt
+        self.scroll_to_top = False       # neue Ansicht: Views springen nach oben
+
     # Benachrichtigung / Abonnement
 
     def subscribe(self, callback):
@@ -48,6 +54,7 @@ class ClipboardViewModel:
         self._positions = None
         for callback in self._listeners:
             callback()
+        self.scroll_to_top = False
 
     # Service-Thread → GUI-Thread
 
@@ -77,16 +84,52 @@ class ClipboardViewModel:
     def sidebar_name(name, max_length=16):
         return ClipboardViewModel._shorten(name, max_length)
 
+    def _page(self, limit):
+        return self.history.get_page(
+            group=self.selected_group,
+            sort_by=self.sort_by,
+            descending=self.descending,
+            search=self.search,
+            favorites_only=self.favorites_only,
+            limit=limit,
+        )
+
     def get_visible_items(self):
         if self._visible is None:
-            self._visible = self.history.get_history(
-                group=self.selected_group,
-                sort_by=self.sort_by,
-                descending=self.descending,
-                search=self.search,
-                favorites_only=self.favorites_only,
-            )
+            self._visible, self._total = self._page(self._limit)
         return self._visible
+
+    def _all_matching(self):
+        # alle Treffer der Ansicht, auch die noch nicht geladenen
+        items, _total = self._page(None)
+        return items
+
+    @property
+    def total_count(self):
+        self.get_visible_items()
+        return self._total
+
+    @property
+    def has_more(self):
+        return self.total_count > len(self.get_visible_items())
+
+    @property
+    def more_count(self):
+        return min(PAGE_SIZE, self.total_count - len(self.get_visible_items()))
+
+    @property
+    def more_text(self):
+        shown = len(self.get_visible_items())
+        return f"Weitere {self.more_count} laden  ·  {shown} von {self.total_count}"
+
+    def load_more(self):
+        self._limit += PAGE_SIZE
+        self._notify()
+
+    def _reset_paging(self):
+        # neue Ansicht: wieder mit der ersten Seite anfangen
+        self._limit = PAGE_SIZE
+        self.scroll_to_top = True
 
     def is_checked(self, item):
         return item in self.checked
@@ -125,7 +168,7 @@ class ClipboardViewModel:
 
     @property
     def count_text(self):
-        return self.entries_text(len(self.get_visible_items()))
+        return self.entries_text(self.total_count)
 
     @property
     def empty_text(self):
@@ -140,7 +183,7 @@ class ClipboardViewModel:
         return "Angezeigte löschen" if self.is_filtering else "Alle löschen"
 
     def deletable_count(self):
-        return len([item for item in self.get_visible_items() if not item.is_favorite])
+        return len([item for item in self._all_matching() if not item.is_favorite])
 
     @staticmethod
     def _shorten(text, max_length):
@@ -229,6 +272,7 @@ class ClipboardViewModel:
             return ClipboardViewModel._shorten(name, max_length)
         return name
 
+
     @staticmethod
     def group_color(item):
         return item.clipboard_group.color if item.clipboard_group else "#9e9e9e"
@@ -285,18 +329,22 @@ class ClipboardViewModel:
 
     def set_search(self, text):
         self.search = text
+        self._reset_paging()
         self._notify()
 
     def set_sort(self, sort_by):
         self.sort_by = sort_by
+        self._reset_paging()
         self._notify()
 
     def toggle_direction(self):
         self.descending = not self.descending
+        self._reset_paging()
         self._notify()
 
     def set_favorites_only(self, value):
         self.favorites_only = value
+        self._reset_paging()
         self._notify()
 
     def sort_by_column(self, sort_by):
@@ -305,6 +353,7 @@ class ClipboardViewModel:
         else:
             self.sort_by = sort_by
             self.descending = False
+        self._reset_paging()
         self._notify()
 
     # Befehle
@@ -341,7 +390,7 @@ class ClipboardViewModel:
         self._notify()
 
     def delete_visible(self):
-        removed = self.history.clear_items(self.get_visible_items())
+        removed = self.history.clear_items(self._all_matching())
         self.checked -= set(removed)
         self._notify()
 
@@ -368,6 +417,7 @@ class ClipboardViewModel:
 
     def select_group(self, group):
         self.selected_group = group
+        self._reset_paging()
         # Nach Gruppe sortieren ergibt innerhalb einer Gruppe keinen Sinn
         if group is not None and self.sort_by == "group":
             self.sort_by = "priority"

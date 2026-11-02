@@ -35,6 +35,11 @@ class EntryRepository(ABC):
         """Gefilterte und sortierte Einträge."""
 
     @abstractmethod
+    def get_page(self, group=None, sort_by="priority", descending=False,
+                 search="", favorites_only=False, limit=None):
+        """Die ersten limit Treffer und die Gesamtzahl: (items, total). None = alle."""
+
+    @abstractmethod
     def count(self, group=None):
         """Anzahl der Einträge einer Gruppe, None = alle."""
 
