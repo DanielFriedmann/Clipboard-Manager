@@ -1,5 +1,15 @@
 ## Terminal Befehle
 
+## Automatisches Skript für Test
+
+
+1 Prüfen, dass der Zwischenablagen Manager nicht gerade läuft. Sonst würde die Test-App wegen der Einzelinstanz-Sperre nur das echte Fenster nach vorne holen.
+2 Deine echten Daten sichern in %USERPROFILE%\ClipboardManager-Sicherungen\<Datum>. Die letzten 5 Sicherungen werden behalten. Eigentlich fasst der Test deine echten Daten nicht an, aber so    hast du ein Sicherheitsnetz.
+3 Testordner frisch anlegen und APPDATA nur für dieses Skript darauf umstellen
+4 Testdaten direkt erzeugen, statt sie über die Zwischenablage einzuspielen. Das geht in einer Sekunde statt in 20, und du kannst währenddessen weiter kopieren. Es entstehen: 120 Texte, Gruppen, Favoriten, ein Link, ein langer mehrzeiliger Text, ein benannter und ein unbenannter Passwort-Eintrag und ein umbenannter Text. Das Passwort für die Anmeldung lautet testtest.
+5 App starten und warten, bis du sie schließt
+6 Aufräumen, auch bei Fehlern oder Strg+C: Services beenden, APPDATA zurücksetzen und den Testordner löschen
+
 ## Testumgebung anlegen
 # Originalpfad merken, um später zurückzukehren
 $originalAppData = $env:APPDATA
