@@ -116,6 +116,13 @@ class Vault:
         self.header["password"] = _wrap(self._dek, new_password, PURPOSE_PASSWORD)
         self.header["kdf"] = dict(KDF_PARAMS)
 
+    def new_recovery_code(self):
+        # neuen Wiederherstellungsschlüssel erzeugen; der alte passt danach nicht mehr
+        code = _new_recovery_code()
+        self.header["recovery"] = _wrap(self._dek, _normalize_code(code), PURPOSE_RECOVERY)
+        self.header["kdf"] = dict(KDF_PARAMS)
+        return code
+    
     # Ver- und Entschlüsseln
 
     def encrypt(self, plain_bytes, associated=PURPOSE_DATA):

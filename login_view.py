@@ -2,7 +2,8 @@ import getpass
 
 import customtkinter as ctk
 
-from vault import MIN_PASSWORD_LENGTH, Vault, WrongPassword, check_password
+from security_dialogs import check_new_password
+from vault import MIN_PASSWORD_LENGTH, Vault, WrongPassword
 
 FONT = ("Segoe UI", 13)
 FONT_TITLE = ("Segoe UI Semibold", 20)
@@ -78,14 +79,6 @@ class LoginView(ctk.CTkFrame):
         self.configure(cursor="watch" if busy else "")
         self.update_idletasks()
 
-    def _check_new_password(self, first, second):
-        if first != second:
-            return "Die Passwörter stimmen nicht überein."
-        try:
-            check_password(first)
-        except ValueError as error:
-            return str(error)
-        return None
 
     # Benutzer anlegen
 
@@ -102,7 +95,7 @@ class LoginView(ctk.CTkFrame):
         self.pw1.focus_set()
 
     def _on_setup(self):
-        problem = self._check_new_password(self.pw1.get(), self.pw2.get())
+        problem = check_new_password(self.pw1.get(), self.pw2.get())
         if problem:
             self.msg.configure(text=problem)
             return
@@ -175,7 +168,7 @@ class LoginView(ctk.CTkFrame):
         self.code.focus_set()
 
     def _on_recovery(self):
-        problem = self._check_new_password(self.pw1.get(), self.pw2.get())
+        problem = check_new_password(self.pw1.get(), self.pw2.get())
         if problem:
             self.msg.configure(text=problem)
             return

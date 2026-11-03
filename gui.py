@@ -22,7 +22,10 @@ from viewmodel import ClipboardViewModel, MASK
 from edit_dialog import EditDialog
 from login_view import LoginView
 from api_client import ApiClient, ApiError, ServiceUnavailable
-from startup import open_api_data, read_header_from_service
+from security_dialogs import ChangePasswordDialog, NewRecoveryDialog
+from startup import (change_vault_password, open_api_data, prepare_new_recovery,
+                     read_header_from_service, save_header)
+from vault import WrongPassword
 from service_runner import ServiceRunner
 from service.auth import load_or_create_token
 from lock_watcher import LockWatcher
@@ -1426,6 +1429,42 @@ def set_setting(key, value):
     except OSError as error:
         print(f"Einstellungen konnten nicht gespeichert werden: {error}")
 
+def change_password(parent):
+    def submit(current, new):
+        try:
+            session["header"] = change_vault_password(api, session["header"], current, new)
+        except WrongPassword:
+            return "Das aktuelle Passwort ist falsch."
+        except ServiceUnavailable:
+            return "Der Speicherdienst antwortet nicht. Das Passwort wurde nicht geändert."
+        except ApiError as error:
+            return f"Speichern fehlgeschlagen ({error.status}). Das Passwort wurde nicht geändert."
+        return None
+
+    ChangePasswordDialog(parent, submit, icon_path=resource_path("icon.ico"))
+def new_recovery(parent):
+    pending = {"header": None}   # vorbereiteter Header, bis der Code notiert ist
+
+    def prepare(password):
+        try:
+            pending["header"], code = prepare_new_recovery(session["header"], password)
+        except WrongPassword:
+            return None, "Das Passwort ist falsch."
+        return code, None
+
+    def confirm():
+        try:
+            save_header(api, pending["header"])
+        except ServiceUnavailable:
+            return "Der Speicherdienst antwortet nicht. Der alte Schlüssel bleibt gültig."
+        except ApiError as error:
+            return f"Speichern fehlgeschlagen ({error.status}). Der alte Schlüssel bleibt gültig."
+        session["header"] = pending["header"]
+        return None
+
+    NewRecoveryDialog(parent, prepare, confirm, icon_path=resource_path("icon.ico"))
+
+
 def open_settings():
     # nur ein Einstellungsfenster gleichzeitig
     window = session.get("settings_window")
@@ -1437,6 +1476,8 @@ def open_settings():
         on_change=set_setting,
         on_lock_now=lock_app,
         version=APP_VERSION,
+        on_change_password=change_password,
+        on_new_recovery=new_recovery,
         icon_path=resource_path("icon.ico"),
     )
 
