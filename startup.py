@@ -1,10 +1,9 @@
 from api_repository import ApiRepository, import_history
 from history import ClipboardHistory
-from storage import (VAULT_FILE, VAULT_VERSION, load_encrypted, load_legacy, remove_legacy,
-                     save_encrypted)
+from storage import VAULT_FILE, VAULT_VERSION, load_encrypted, load_legacy, remove_legacy
 
-# Nach der Anmeldung: Daten öffnen, mit oder ohne Speicherdienst.
-# Liefert ein Repository (ClipboardHistory oder ApiRepository) für das ViewModel.
+# Nach der Anmeldung: Daten über den Speicherdienst öffnen.
+# Liefert ein ApiRepository für das ViewModel.
 
 
 def read_header_from_service(api):
@@ -28,15 +27,3 @@ def open_api_data(api, vault, is_new, header_changed, backup_path=VAULT_FILE):
 
     remove_legacy()   # erst wenn alles beim Dienst angekommen ist
     return ApiRepository(api, vault)
-
-
-def open_file_data(vault_content, vault, is_new, header_changed):
-    if is_new:
-        history = load_legacy() or ClipboardHistory()
-        save_encrypted(history, vault)
-    else:
-        history = load_encrypted(vault_content, vault)
-        if header_changed:
-            save_encrypted(history, vault)
-    remove_legacy()
-    return history

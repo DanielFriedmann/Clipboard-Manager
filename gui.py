@@ -21,9 +21,8 @@ from history import ClipboardHistory
 from viewmodel import ClipboardViewModel, MASK
 from edit_dialog import EditDialog
 from login_view import LoginView
-from storage import read_vault_file, save_encrypted
 from api_client import ApiClient, ApiError, ServiceUnavailable
-from startup import open_api_data, open_file_data, read_header_from_service
+from startup import open_api_data, read_header_from_service
 from service_runner import ServiceRunner
 from service.auth import load_or_create_token
 
@@ -89,7 +88,6 @@ SORT_OPTIONS = {
 SORT_LABELS = {value: label for label, value in SORT_OPTIONS.items()}   # umgekehrte Richtung
 
 LOAD_DEMO_DATA = False   # beim Starten Demo-Daten laden
-USE_API = True   # Speicherdienst verwenden (False = alter Weg nur über die Datei)
 
 APP_VERSION = "1.2.0"
 APP_TITLE = f"Zwischenablagen Manager  {APP_VERSION}"
@@ -1059,24 +1057,21 @@ root.minsize(420, 420)
 root.geometry(settings["window_geometry"] or DEFAULT_GEOMETRY)
 root.bind("<Control-b>", lambda _event: on_sidebar_toggle())
 
-# Speicherdienst starten (in 5a läuft er nur mit, die Daten kommen noch aus der Datei)
-service_runner = None
-if USE_API:
-    api = ApiClient(load_or_create_token())
-    service_runner = ServiceRunner(api)
-    try:
-        service_runner.ensure_running()
-    except ServiceUnavailable as error:
-        messagebox.showerror("Zwischenablagen Manager",
-                             f"Der Speicherdienst konnte nicht gestartet werden.\n\n{error}",
-                             parent=root)
-        root.destroy()
-        sys.exit(1)
+# Speicherdienst starten
+api = ApiClient(load_or_create_token())
+service_runner = ServiceRunner(api)
+try:
+    service_runner.ensure_running()
+except ServiceUnavailable as error:
+    messagebox.showerror("Zwischenablagen Manager",
+                         f"Der Speicherdienst konnte nicht gestartet werden.\n\n{error}",
+                         parent=root)
+    root.destroy()
+    sys.exit(1)
 
 
 def stop_service():
-    if service_runner is not None:
-        service_runner.stop()
+    service_runner.stop()
 
 # Fehler des Speicherdienstes während der Benutzung im Fenster melden
 
@@ -1115,18 +1110,12 @@ def report_callback_error(exc_type, error, tb):
 
 root.report_callback_exception = report_callback_error
 
-# Tresor-Header lesen: eine beschädigte Datei wird nie überschrieben
-vault_content = None
+# Tresor-Header über den Speicherdienst lesen
 try:
-    if USE_API:
-        header = read_header_from_service(api)
-    else:
-        vault_content = read_vault_file()
-        header = vault_content["vault"] if vault_content else None
-except (OSError, ValueError, ApiError, ServiceUnavailable) as error:
+    header = read_header_from_service(api)
+except (ApiError, ServiceUnavailable) as error:
     messagebox.showerror("Zwischenablagen Manager",
-                         "Die Datendatei konnte nicht gelesen werden und wurde nicht verändert.\n\n"
-                         f"{error}", parent=root)
+                         f"Die Daten konnten nicht gelesen werden.\n\n{error}", parent=root)
     stop_service()
     root.destroy()
     sys.exit(1)
@@ -1139,10 +1128,7 @@ login_done = tk.BooleanVar(value=False)
 def on_unlocked(vault, is_new, header_changed):
     # liefert None bei Erfolg, sonst einen Fehlertext für die Anmeldeseite
     try:
-        if USE_API:
-            repository = open_api_data(api, vault, is_new, header_changed)
-        else:
-            repository = open_file_data(vault_content, vault, is_new, header_changed)
+        repository = open_api_data(api, vault, is_new, header_changed)
     except (OSError, ValueError, ApiError, ServiceUnavailable) as error:
         return f"Die Daten konnten nicht geöffnet werden: {error}"
     login_result.update(vault=vault, repository=repository, is_new=is_new)
@@ -1341,36 +1327,13 @@ def open_edit_dialog(item):
 
 #  Daten
 
-SAVE_DELAY = 1000   # Millisekunden Ruhe, bevor gespeichert wird
-pending_save = {"job": None}
 current_view = {"name": "Kacheln"}
 layout = {"narrow": False, "auto_collapsed": False}
 
 
-def save_now():
-    pending_save["job"] = None
-    try:
-        save_encrypted(repository, vault)
-    except OSError as error:
-        print(f"Speichern fehlgeschlagen: {error}")
-
-def schedule_save():
-    # bei jeder Änderung den Zeitgeber neu starten
-    if pending_save["job"] is not None:
-        root.after_cancel(pending_save["job"])
-    pending_save["job"] = root.after(SAVE_DELAY, save_now)
-
 def on_close():
-    # ohne Dienst: ausstehendes Speichern sofort erledigen
-    if not USE_API:
-        if pending_save["job"] is not None:
-            root.after_cancel(pending_save["job"])
-        save_now()
 
-    # Einstellungen festhalten
-
-    #print("Beim Schließen:", root.geometry(), root.state())
-    
+    # Einstellungen festhalten    
     settings["window_maximized"] = root.state() == "zoomed"
     if not settings["window_maximized"]:
         # bei maximiertem Fenster die letzte normale Größe behalten
@@ -1386,9 +1349,6 @@ def on_close():
     stop_service()
     root.destroy()
 
-
-
-#print("Gesetzt:", settings["window_geometry"])
 
 sidebar = GroupSidebar(root, vm)
 sidebar.pack(side="left", fill="y")
@@ -1464,8 +1424,6 @@ hint_label.pack(side="bottom", fill="x", padx=16, pady=(8, 12))
 # Start
 root.protocol("WM_DELETE_WINDOW", on_close)
 vm.subscribe(refresh_header)
-if not USE_API:
-    vm.subscribe(schedule_save)   # mit Dienst wird jede Änderung sofort gespeichert
 card_view.refresh()
 table_view.refresh()
 refresh_header()
