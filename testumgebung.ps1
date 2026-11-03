@@ -8,7 +8,8 @@
 param(
     [int]$Anzahl = 120,
     [string]$Passwort = "testtest",
-    [switch]$Behalten          # Testordner nach dem Schließen nicht löschen
+    [switch]$Behalten,          # Testordner nach dem Schließen nicht löschen
+    [switch]$Exe               # gebaute .exe statt gui.py starten
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +21,7 @@ $testOrdner = "C:\Temp\cm-testumgebung"
 $sicherungen = Join-Path $env:USERPROFILE "ClipboardManager-Sicherungen"
 $behalteSicherungen = 5
 $originalAppData = $env:APPDATA
+$exePfad = Join-Path $projekt "dist\Zwischenablagen-Manager\Zwischenablagen-Manager.exe"
 
 
 function Stop-Speicherdienste {
@@ -85,7 +87,16 @@ try {
     Write-Host ""
     Write-Host "Testumgebung läuft. Anmelden mit: $Passwort" -ForegroundColor Green
     Write-Host "Zum Beenden einfach die App schließen."
-    & $python gui.py
+    if ($Exe) {
+        if (-not (Test-Path $exePfad)) {
+            throw "Keine .exe gefunden: $exePfad (vorher bauen)"
+        }
+        # -Wait: ein Fensterprogramm würde sonst sofort zurückkehren
+        Start-Process -FilePath $exePfad -Wait
+    }
+    else {
+        & $python gui.py
+    }
 }
 finally {
     # 6. aufräumen, auch nach Fehlern oder Strg+C

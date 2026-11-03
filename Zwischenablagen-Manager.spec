@@ -1,8 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 datas = [('icon.ico', '.')]
 datas += collect_data_files('customtkinter')
+
+# Speicherdienst: uvicorn und anyio laden Teile erst zur Laufzeit,
+# unser Paket service wird nur bei "--service" importiert
+hiddenimports = []
+hiddenimports += collect_submodules('uvicorn')
+hiddenimports += collect_submodules('anyio')
+hiddenimports += collect_submodules('service')
 
 
 a = Analysis(
@@ -10,7 +17,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=datas,
-    hiddenimports=[],
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
