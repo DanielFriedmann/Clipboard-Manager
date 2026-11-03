@@ -9,14 +9,13 @@
 [X] Sortierung nach eigener Priorisierung per Drag and Drop  
 [X] Drag and Drop Sortierung in Gruppen    
 [X] Gruppierungen in Farbe   
-[X] Tabellarische Anzeige und Sortierungen  
-[] Always im Vordergrund Toggle  
+[X] Tabellarische Anzeige und Sortierungen   
 [X] Priorisierung Anzeigen lassen?       
 [X] Tabellenansicht   
 [] Stichwort / Schlagwortsuche    
 [X] Branching   
 [] RTF Strukture   
-[] Vorschau   
+[X] Vorschau   
 [] Umbenennung Spalte     
 [X] zu lange Gruppen Namen   
 [] Hover in der Tabelle  
@@ -32,11 +31,16 @@
 [X] Fensterposition speichern   
 [] System Schriftart und größe übernehmen  
 [] Nur eine Instanz zulassen vom ClipboardManager  
-[] Performance in der Kachelansicht  
+[X] Performance in der Kachelansicht  
 [] Bug bei Skalierung beim Wechsel von Bildschirm  
-[] Accent auf Smaragd Grün / Farbeinstellung ermöglichen  
-[] Einstellungen -> Individualisierbarkeit  
-[] Einstellungen -> automatische Updates Toggle  
+
+
+## Einstellungen
+[] Individualisierbarkeit  
+[] automatische Updates Toggle  
+[] Always Vordergrund Toggle  
+[] Farbeinstellungen   
+[] Passwort ändern  
 
 ## Version 1.0.0 Rollout Review
 --  Einfügen im Clipboard nur mit Doppelklick aus Tabellenansicht - Yay or Nay?   

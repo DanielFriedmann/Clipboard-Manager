@@ -11,7 +11,7 @@ MASK_CHAR = "•"
 class EditDialog(ctk.CTkToplevel):
     # Name und bei Passwörtern Benutzername bearbeiten
 
-    def __init__(self, parent, item, on_save, icon_path=None):
+    def __init__(self, parent, item, on_save, icon_path=None, content=None):
         super().__init__(parent)
         self.on_save = on_save
         self.password_entry = None
@@ -35,7 +35,7 @@ class EditDialog(ctk.CTkToplevel):
                                              item.url or "", "z. B. https://vpn.firma.de")
             self.username_entry = self._add_field(body, "Benutzername (optional)",
                                                   item.username or "")
-            self._add_password(body, item.content)
+            self._add_password(body, content if content is not None else item.content)
 
         # Knöpfe
         buttons = ctk.CTkFrame(self, fg_color="transparent")

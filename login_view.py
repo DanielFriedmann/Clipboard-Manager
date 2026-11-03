@@ -2,8 +2,6 @@ import getpass
 
 import customtkinter as ctk
 
-from history import ClipboardHistory
-from storage import load_encrypted, load_legacy, remove_legacy, save_encrypted
 from vault import MIN_PASSWORD_LENGTH, Vault, WrongPassword, check_password
 
 FONT = ("Segoe UI", 13)
@@ -28,18 +26,20 @@ def windows_user_name():
 
 
 class LoginView(ctk.CTkFrame):
-    # Anmeldung, Anlegen des Benutzers und Wiederherstellung; liegt über dem ganzen Fenster
+    # Anmeldung, Anlegen des Benutzers und Wiederherstellung; liegt über dem ganzen Fenster.
+    # Kennt nur den Header mit den eingepackten Schlüsseln, nicht die Daten:
+    # die öffnet on_unlocked, egal ob aus der Datei oder über den Speicherdienst.
 
-    def __init__(self, master, vault_content, on_success):
+    def __init__(self, master, header, on_unlocked):
         super().__init__(master, corner_radius=0)
-        self.vault_content = vault_content
-        self.on_success = on_success
+        self.header = header             # None, wenn es noch keinen Tresor gibt
+        self.on_unlocked = on_unlocked   # liefert None oder einen Fehlertext
         self.user_name = windows_user_name()
 
         self.box = ctk.CTkFrame(self, fg_color="transparent")
         self.box.place(relx=0.5, rely=0.45, anchor="center")
 
-        if vault_content is None:
+        if header is None:
             self.show_setup()
         else:
             self.show_login()
@@ -108,13 +108,10 @@ class LoginView(ctk.CTkFrame):
 
         self._busy(True)
         vault, code = Vault.create(self.pw1.get())
-        history = load_legacy() or ClipboardHistory()   # Daten aus Version 1.1 übernehmen
-        save_encrypted(history, vault)
-        remove_legacy()                                  # erst nach erfolgreichem Speichern
         self._busy(False)
-        self.show_code(code, vault, history)
+        self.show_code(code, vault)
 
-    def show_code(self, code, vault, history):
+    def show_code(self, code, vault):
         self._clear()
         self._title("Wiederherstellungsschlüssel",
                     "Damit kannst du ein neues Passwort setzen, falls du deines vergisst. "
@@ -129,7 +126,9 @@ class LoginView(ctk.CTkFrame):
                                     font=FONT_SMALL)
         confirmed.pack(pady=(12, 0))
 
-        button = self._button("Weiter", lambda: self.on_success(vault, history, True))
+        self.msg = self._message()
+        # erst jetzt speichern: wer hier abbricht, hat noch keinen Tresor ohne notierten Schlüssel
+        button = self._button("Weiter", lambda: self._finish(vault, is_new=True))
         button.configure(state="disabled")
         confirmed.configure(command=lambda: button.configure(
             state="normal" if confirmed.get() else "disabled"))
@@ -149,7 +148,7 @@ class LoginView(ctk.CTkFrame):
     def _on_login(self):
         self._busy(True)
         try:
-            vault = Vault.unlock(self.vault_content["vault"], self.pw.get())
+            vault = Vault.unlock(self.header, self.pw.get())
         except WrongPassword:
             self._busy(False)
             self.pw.delete(0, "end")
@@ -181,25 +180,19 @@ class LoginView(ctk.CTkFrame):
 
         self._busy(True)
         try:
-            vault = Vault.unlock_with_recovery(self.vault_content["vault"], self.code.get())
+            vault = Vault.unlock_with_recovery(self.header, self.code.get())
         except WrongPassword:
             self._busy(False)
             self.msg.configure(text="Der Wiederherstellungsschlüssel ist falsch.")
             return
         vault.change_password(self.pw1.get())
-        self._finish(vault, save=True)
+        self._finish(vault, header_changed=True)
 
     # Abschluss
 
-    def _finish(self, vault, save=False):
-        try:
-            history = load_encrypted(self.vault_content, vault)
-        except Exception as error:
-            self._busy(False)
-            self.msg.configure(text=f"Die Daten konnten nicht gelesen werden: {error}")
-            return
-        if save:
-            save_encrypted(history, vault)   # neues Passwort sofort festschreiben
-        remove_legacy()                      # falls noch eine alte Klartext-Datei übrig ist
+    def _finish(self, vault, is_new=False, header_changed=False):
+        self._busy(True)
+        error = self.on_unlocked(vault, is_new, header_changed)
         self._busy(False)
-        self.on_success(vault, history, False)
+        if error:
+            self.msg.configure(text=error)

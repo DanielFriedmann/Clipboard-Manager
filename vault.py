@@ -1,9 +1,13 @@
 import base64
+import hashlib
+import hmac
 import os
 import secrets
 
 from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 MIN_PASSWORD_LENGTH = 8
@@ -15,20 +19,26 @@ KDF_PARAMS = {"n": 2 ** 17, "r": 8, "p": 1}
 PURPOSE_PASSWORD = b"dek-password"
 PURPOSE_RECOVERY = b"dek-recovery"
 PURPOSE_DATA = b"data"
+PURPOSE_HASH = b"content-hash"
 
 
 class WrongPassword(Exception):
     pass
 
 
+class DamagedData(Exception):
+    # Prüfwert passt nicht: Datei beschädigt oder verändert
+    pass
+
+
 # Hilfsfunktionen
 
 def _b64(data):
-    return base64.b64encode(data).decode("ascii")  
+    return base64.b64encode(data).decode("ascii")
 
 
 def _unb64(text):
-    return base64.b64decode(text)  
+    return base64.b64decode(text)
 
 
 def _derive_key(secret, salt, params):
@@ -73,6 +83,7 @@ def check_password(password):
 class Vault:
     def __init__(self, dek, header):
         self._dek = dek          # Datenschlüssel, nur im Arbeitsspeicher
+        self._hash_key = None    # Schlüssel für content_hash, wird bei Bedarf abgeleitet
         self.header = header     # wird unverschlüsselt in der Datei gespeichert
 
     @classmethod
@@ -105,13 +116,30 @@ class Vault:
         self.header["password"] = _wrap(self._dek, new_password, PURPOSE_PASSWORD)
         self.header["kdf"] = dict(KDF_PARAMS)
 
-    def encrypt(self, plain_bytes):
+    # Ver- und Entschlüsseln
+
+    def encrypt(self, plain_bytes, associated=PURPOSE_DATA):
+        # associated: wird mitgeprüft, aber nicht verschlüsselt (bindet den Block an seinen Platz)
         nonce = os.urandom(12)
-        data = AESGCM(self._dek).encrypt(nonce, plain_bytes, PURPOSE_DATA)
+        data = AESGCM(self._dek).encrypt(nonce, plain_bytes, associated)
         return {"nonce": _b64(nonce), "data": _b64(data)}
 
-    def decrypt(self, entry):
-        return AESGCM(self._dek).decrypt(_unb64(entry["nonce"]), _unb64(entry["data"]), PURPOSE_DATA)
+    def decrypt(self, entry, associated=PURPOSE_DATA):
+        try:
+            nonce = _unb64(entry["nonce"])
+            data = _unb64(entry["data"])
+            return AESGCM(self._dek).decrypt(nonce, data, associated)
+        except (InvalidTag, ValueError, KeyError, TypeError):
+            # falscher Prüfwert, ungültiges Base64 oder fehlende Felder: alles heißt "beschädigt"
+            raise DamagedData() from None
+
+    def content_hash(self, text):
+        # gleicher Text ergibt denselben Wert, ohne Schlüssel lässt er sich nicht nachrechnen
+        if self._hash_key is None:
+            hkdf = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=PURPOSE_HASH)
+            self._hash_key = hkdf.derive(self._dek)
+        return hmac.new(self._hash_key, text.encode("utf-8"), hashlib.sha256).hexdigest()
 
     def lock(self):
         self._dek = None
+        self._hash_key = None
