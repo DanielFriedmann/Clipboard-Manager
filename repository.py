@@ -47,6 +47,10 @@ class EntryRepository(ABC):
     def get_content(self, item):
         """Inhalt eines Eintrags; bei Passwörtern wird er erst jetzt geholt."""
 
+    @abstractmethod
+    def close(self):
+        """Beim Sperren: entschlüsselte Daten und Schlüssel aus dem Speicher entfernen."""
+
     # Einträge ändern
 
     @abstractmethod

@@ -22,9 +22,14 @@ from viewmodel import ClipboardViewModel, MASK
 from edit_dialog import EditDialog
 from login_view import LoginView
 from api_client import ApiClient, ApiError, ServiceUnavailable
-from startup import open_api_data, read_header_from_service
+from security_dialogs import ChangePasswordDialog, NewRecoveryDialog
+from startup import (change_vault_password, open_api_data, prepare_new_recovery,
+                     read_header_from_service, save_header)
+from vault import WrongPassword
 from service_runner import ServiceRunner
 from service.auth import load_or_create_token
+from lock_watcher import LockWatcher
+from settings_window import SettingsWindow
 
 # Dieselbe Datei startet auch den Speicherdienst (wichtig für die .exe)
 if "--service" in sys.argv:
@@ -89,7 +94,7 @@ SORT_LABELS = {value: label for label, value in SORT_OPTIONS.items()}   # umgeke
 
 LOAD_DEMO_DATA = False   # beim Starten Demo-Daten laden
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "2.0.0"
 APP_TITLE = f"Zwischenablagen Manager  {APP_VERSION}"
 APP_ID = "B5A469AA-EA94-4DAE-BFEB-B00931C8C895"
 
@@ -322,11 +327,28 @@ class CardView(ctk.CTkScrollableFrame):  # Kachel-Ansicht
 
     # Zeichnen
 
+    def _clear(self):
+        # beim Sperren: alle Kacheln mit ihrem Klartext zerstören
+        for card in self.cards.values():
+            card.destroy()
+        self.cards.clear()
+        self.card_items = {}
+        self.empty_label.pack_forget()
+        self.more_button.pack_forget()
+        self._packed = []
+        self._dirty = True   # nach dem Entsperren neu zeichnen
+    
     def _on_map(self, _event):
         if self._dirty:
             self.refresh()
 
     def refresh(self):
+
+        # gesperrt: aufräumen, auch wenn die Ansicht gerade nicht sichtbar ist
+        if self.vm.locked:
+            self._clear()
+            return
+        
         # unsichtbare Ansicht nicht zeichnen, nur vormerken
         if not self.winfo_ismapped():
             self._dirty = True
@@ -519,6 +541,16 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
             self.refresh()
 
     def refresh(self):
+        # gesperrt: alle Zeilen entfernen, auch wenn die Ansicht gerade nicht sichtbar ist
+        if self.vm.locked:
+            self.tooltip.hide()
+            self.tree.delete(*self.tree.get_children())
+            self.row_items.clear()
+            self.row_tags.clear()
+            self.more_row = None
+            self._hover_row = None
+            self._dirty = True
+            return
         # unsichtbare Ansicht nicht zeichnen, nur vormerken
         if not self.winfo_ismapped():
             self._dirty = True
@@ -800,7 +832,7 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         )
         self.settings_button.pack(fill="x")
 
-        Tooltip(self.settings_button, "Einstellungen (folgt)")
+        Tooltip(self.settings_button, "Einstellungen")
 
         # Mitte: scrollbare Liste füllt den Platz dazwischen
         self.list = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius = 0)
@@ -835,6 +867,9 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         self.highlighted_row = None
         for widget in self.list.winfo_children():
             widget.destroy()
+
+        if self.vm.locked:
+            return   # gesperrt: keine Gruppennamen zeigen
 
         self._create_row(None, "Alle Einträge", None)
         default = self.vm.default_group
@@ -1035,7 +1070,7 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
             "Gruppe löschen",
             f"Gruppe „{group.name}“ löschen?\nIhre Einträge wandern nach „{self.vm.default_group.name}“.",
             parent=self.winfo_toplevel(),
-        ):
+        ) and not self.vm.locked:
             self.vm.remove_group(group)
 
 #  Verknüpfung: Daten, ViewModel, Service
@@ -1156,6 +1191,8 @@ login_view.destroy()
 
 vault = login_result["vault"]
 repository = login_result["repository"]
+# für die Sperre: aktueller Header (ändert sich z. B. nach "Passwort vergessen")
+session = {"header": vault.header, "lock_view": None}
 if login_result["is_new"] and LOAD_DEMO_DATA and repository.count() == 0:
     load_demo_data(repository)
 
@@ -1166,6 +1203,13 @@ vm.service = service
 #  Hauptfenster
 
 def refresh_header():
+
+    if vm.locked:
+        title_label.configure(text="")
+        count_label.configure(text="")
+        delete_checked_button.configure(state="disabled")
+        return
+    
     narrow = layout["narrow"]
 
     title = vm.title_text
@@ -1194,6 +1238,10 @@ def on_clear_click():
     text = "1 Eintrag" if count == 1 else f"{count} Einträge"
     if not messagebox.askyesno("Löschen", f"{text} löschen?\nFavoriten bleiben erhalten.", parent=root):
         return
+    if vm.locked:
+        return   # während der Rückfrage gesperrt
+
+    vm.delete_visible()
 
     vm.delete_visible()
 
@@ -1223,9 +1271,10 @@ def open_filter_menu():
     menu.tk_popup(x, y)
 
 def on_delete_checked():
-        count = vm.checked_count
-        text = "1 Eintrag" if count == 1 else f"{count} Einträge"
-        if messagebox.askyesno("Markierte löschen", f"{text} endgültig löschen?", parent=root):
+    count = vm.checked_count
+    text = "1 Eintrag" if count == 1 else f"{count} Einträge"
+    if messagebox.askyesno("Markierte löschen", f"{text} endgültig löschen?", parent=root):
+        if not vm.locked:   # während der Rückfrage gesperrt?
             vm.delete_checked()
 
 def on_view_change(choice):
@@ -1325,6 +1374,113 @@ def open_edit_dialog(item):
     EditDialog(root, item, lambda title, username, url: vm.rename(item, title, username, url),
                icon_path=resource_path("icon.ico"), content=content)
 
+# Sperren
+
+def close_dialogs():
+    # offene Dialoge schließen, z. B. Benennen mit sichtbarem Passwort
+    for widget in root.winfo_children():
+        if isinstance(widget, tk.Toplevel):
+            widget.destroy()
+    window = session.get("settings_window")
+    if window is not None and window.winfo_exists():
+        window.destroy()
+
+
+def lock_app():
+    if vm.locked:
+        return
+    close_dialogs()
+    try:
+        service.clear()
+    except Exception as error:
+        print(f"Zwischenablage konnte nicht geleert werden: {error}")
+    search_entry.delete(0, "end")
+
+    repository = vm.history
+    vm.lock()            # Views räumen auf
+    repository.close()   # Klartext und Schlüssel entfernen
+
+    lock_view = LoginView(root, session["header"], on_unlocked_again, locked=True)
+    lock_view.place(relx=0, rely=0, relwidth=1, relheight=1)
+    lock_view.lift()
+    session["lock_view"] = lock_view
+
+
+def on_unlocked_again(new_vault, _is_new, header_changed):
+    # wie bei der ersten Anmeldung: None bei Erfolg, sonst Fehlertext
+    try:
+        repository = open_api_data(api, new_vault, False, header_changed)
+    except (OSError, ValueError, ApiError, ServiceUnavailable) as error:
+        return f"Die Daten konnten nicht geöffnet werden: {error}"
+    session["header"] = new_vault.header
+    vm.unlock(repository)
+    # erst nach diesem Callback entfernen, die Anmeldeseite räumt noch auf
+    root.after_idle(session["lock_view"].destroy)
+    session["lock_view"] = None
+    return None
+
+
+
+def set_setting(key, value):
+    # sofort speichern, damit nichts verloren geht, falls die App abstürzt
+    settings[key] = value
+    try:
+        save_settings(settings)
+    except OSError as error:
+        print(f"Einstellungen konnten nicht gespeichert werden: {error}")
+
+def change_password(parent):
+    def submit(current, new):
+        try:
+            session["header"] = change_vault_password(api, session["header"], current, new)
+        except WrongPassword:
+            return "Das aktuelle Passwort ist falsch."
+        except ServiceUnavailable:
+            return "Der Speicherdienst antwortet nicht. Das Passwort wurde nicht geändert."
+        except ApiError as error:
+            return f"Speichern fehlgeschlagen ({error.status}). Das Passwort wurde nicht geändert."
+        return None
+
+    ChangePasswordDialog(parent, submit, icon_path=resource_path("icon.ico"))
+def new_recovery(parent):
+    pending = {"header": None}   # vorbereiteter Header, bis der Code notiert ist
+
+    def prepare(password):
+        try:
+            pending["header"], code = prepare_new_recovery(session["header"], password)
+        except WrongPassword:
+            return None, "Das Passwort ist falsch."
+        return code, None
+
+    def confirm():
+        try:
+            save_header(api, pending["header"])
+        except ServiceUnavailable:
+            return "Der Speicherdienst antwortet nicht. Der alte Schlüssel bleibt gültig."
+        except ApiError as error:
+            return f"Speichern fehlgeschlagen ({error.status}). Der alte Schlüssel bleibt gültig."
+        session["header"] = pending["header"]
+        return None
+
+    NewRecoveryDialog(parent, prepare, confirm, icon_path=resource_path("icon.ico"))
+
+
+def open_settings():
+    # nur ein Einstellungsfenster gleichzeitig
+    window = session.get("settings_window")
+    if window is not None and window.winfo_exists():
+        window.focus_set()
+        return
+    session["settings_window"] = SettingsWindow(
+        root, settings,
+        on_change=set_setting,
+        on_lock_now=lock_app,
+        version=APP_VERSION,
+        on_change_password=change_password,
+        on_new_recovery=new_recovery,
+        icon_path=resource_path("icon.ico"),
+    )
+
 #  Daten
 
 current_view = {"name": "Kacheln"}
@@ -1353,6 +1509,7 @@ def on_close():
 sidebar = GroupSidebar(root, vm)
 sidebar.pack(side="left", fill="y")
 sidebar.toggle_button.configure(command=on_sidebar_toggle)
+sidebar.settings_button.configure(command=open_settings)
 
 main_area = ctk.CTkFrame(root, fg_color="transparent")
 main_area.pack(side="left", fill="both", expand=True)
@@ -1423,6 +1580,8 @@ hint_label.pack(side="bottom", fill="x", padx=16, pady=(8, 12))
 
 # Start
 root.protocol("WM_DELETE_WINDOW", on_close)
+root.bind_all("<Control-l>", lambda _event: lock_app())
+root.bind_all("<Control-L>", lambda _event: lock_app())   # auch mit Feststelltaste
 vm.subscribe(refresh_header)
 card_view.refresh()
 table_view.refresh()
@@ -1438,4 +1597,6 @@ root.after(300, restore_window)
 
 threading.Thread(target=service.start, daemon=True).start()
 root.after(100, poll_incoming)
+lock_watcher = LockWatcher(root, lock_app, settings)
+lock_watcher.start()
 root.mainloop()

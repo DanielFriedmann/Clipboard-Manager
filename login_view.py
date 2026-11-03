@@ -2,7 +2,8 @@ import getpass
 
 import customtkinter as ctk
 
-from vault import MIN_PASSWORD_LENGTH, Vault, WrongPassword, check_password
+from security_dialogs import check_new_password
+from vault import MIN_PASSWORD_LENGTH, Vault, WrongPassword
 
 FONT = ("Segoe UI", 13)
 FONT_TITLE = ("Segoe UI Semibold", 20)
@@ -30,10 +31,11 @@ class LoginView(ctk.CTkFrame):
     # Kennt nur den Header mit den eingepackten Schlüsseln, nicht die Daten:
     # die öffnet on_unlocked, egal ob aus der Datei oder über den Speicherdienst.
 
-    def __init__(self, master, header, on_unlocked):
+    def __init__(self, master, header, on_unlocked, locked=False):
         super().__init__(master, corner_radius=0)
         self.header = header             # None, wenn es noch keinen Tresor gibt
         self.on_unlocked = on_unlocked   # liefert None oder einen Fehlertext
+        self.locked = locked             # True: Entsperren nach einer Sperre
         self.user_name = windows_user_name()
 
         self.box = ctk.CTkFrame(self, fg_color="transparent")
@@ -77,14 +79,6 @@ class LoginView(ctk.CTkFrame):
         self.configure(cursor="watch" if busy else "")
         self.update_idletasks()
 
-    def _check_new_password(self, first, second):
-        if first != second:
-            return "Die Passwörter stimmen nicht überein."
-        try:
-            check_password(first)
-        except ValueError as error:
-            return str(error)
-        return None
 
     # Benutzer anlegen
 
@@ -101,7 +95,7 @@ class LoginView(ctk.CTkFrame):
         self.pw1.focus_set()
 
     def _on_setup(self):
-        problem = self._check_new_password(self.pw1.get(), self.pw2.get())
+        problem = check_new_password(self.pw1.get(), self.pw2.get())
         if problem:
             self.msg.configure(text=problem)
             return
@@ -137,7 +131,8 @@ class LoginView(ctk.CTkFrame):
 
     def show_login(self):
         self._clear()
-        self._title("Anmelden", f"Windows-Benutzer: {self.user_name}")
+        self._title("Gesperrt" if self.locked else "Anmelden",
+                    f"Windows-Benutzer: {self.user_name}")
         self.pw = self._password_field("Passwort")
         self.msg = self._message()
         self._button("Anmelden", self._on_login)
@@ -173,7 +168,7 @@ class LoginView(ctk.CTkFrame):
         self.code.focus_set()
 
     def _on_recovery(self):
-        problem = self._check_new_password(self.pw1.get(), self.pw2.get())
+        problem = check_new_password(self.pw1.get(), self.pw2.get())
         if problem:
             self.msg.configure(text=problem)
             return
@@ -193,6 +188,8 @@ class LoginView(ctk.CTkFrame):
     def _finish(self, vault, is_new=False, header_changed=False):
         self._busy(True)
         error = self.on_unlocked(vault, is_new, header_changed)
+        if not self.winfo_exists():
+            return   # Seite wurde nach dem Entsperren schon entfernt
         self._busy(False)
         if error:
             self.msg.configure(text=error)
