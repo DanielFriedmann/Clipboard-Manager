@@ -45,6 +45,22 @@ class ApiRepository(EntryRepository):
         self._counts = None       # zwischengespeicherte Anzahl pro Gruppe
         self._load_groups()
 
+    def close(self):
+        # beim Sperren: entschlüsselte Daten und Schlüssel aus dem Speicher entfernen
+        for item in self._items.values():
+            item.content = None
+            for name in DETAIL_FIELDS:
+                setattr(item, name, None)
+        for group in self._groups.values():
+            group.name = ""
+        self._items.clear()
+        self._groups.clear()
+        self._group_list = []
+        self._default_group = None
+        self._order = []
+        self._counts = None
+        self.vault.lock()
+
     # Umwandeln: Service ↔ Objekte
 
     def _load_groups(self):

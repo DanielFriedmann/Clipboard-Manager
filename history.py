@@ -194,6 +194,11 @@ class ClipboardHistory(EntryRepository):
     def get_content(self, item):
         return item.content
 
+    def close(self):
+        # nur im Speicher: alles vergessen
+        self.history = []
+        self.groups = [self.default_group]
+
     # Gruppenverwaltung
 
     def get_default_group(self):

@@ -322,11 +322,28 @@ class CardView(ctk.CTkScrollableFrame):  # Kachel-Ansicht
 
     # Zeichnen
 
+    def _clear(self):
+        # beim Sperren: alle Kacheln mit ihrem Klartext zerstören
+        for card in self.cards.values():
+            card.destroy()
+        self.cards.clear()
+        self.card_items = {}
+        self.empty_label.pack_forget()
+        self.more_button.pack_forget()
+        self._packed = []
+        self._dirty = True   # nach dem Entsperren neu zeichnen
+    
     def _on_map(self, _event):
         if self._dirty:
             self.refresh()
 
     def refresh(self):
+
+        # gesperrt: aufräumen, auch wenn die Ansicht gerade nicht sichtbar ist
+        if self.vm.locked:
+            self._clear()
+            return
+        
         # unsichtbare Ansicht nicht zeichnen, nur vormerken
         if not self.winfo_ismapped():
             self._dirty = True
@@ -519,6 +536,16 @@ class TableView(ctk.CTkFrame):  # Tabellen-Ansicht
             self.refresh()
 
     def refresh(self):
+        # gesperrt: alle Zeilen entfernen, auch wenn die Ansicht gerade nicht sichtbar ist
+        if self.vm.locked:
+            self.tooltip.hide()
+            self.tree.delete(*self.tree.get_children())
+            self.row_items.clear()
+            self.row_tags.clear()
+            self.more_row = None
+            self._hover_row = None
+            self._dirty = True
+            return
         # unsichtbare Ansicht nicht zeichnen, nur vormerken
         if not self.winfo_ismapped():
             self._dirty = True
@@ -835,6 +862,9 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         self.highlighted_row = None
         for widget in self.list.winfo_children():
             widget.destroy()
+
+        if self.vm.locked:
+            return   # gesperrt: keine Gruppennamen zeigen
 
         self._create_row(None, "Alle Einträge", None)
         default = self.vm.default_group
@@ -1156,6 +1186,8 @@ login_view.destroy()
 
 vault = login_result["vault"]
 repository = login_result["repository"]
+# für die Sperre: aktueller Header (ändert sich z. B. nach "Passwort vergessen")
+session = {"header": vault.header, "lock_view": None}
 if login_result["is_new"] and LOAD_DEMO_DATA and repository.count() == 0:
     load_demo_data(repository)
 
@@ -1166,6 +1198,13 @@ vm.service = service
 #  Hauptfenster
 
 def refresh_header():
+
+    if vm.locked:
+        title_label.configure(text="")
+        count_label.configure(text="")
+        delete_checked_button.configure(state="disabled")
+        return
+    
     narrow = layout["narrow"]
 
     title = vm.title_text
@@ -1325,6 +1364,47 @@ def open_edit_dialog(item):
     EditDialog(root, item, lambda title, username, url: vm.rename(item, title, username, url),
                icon_path=resource_path("icon.ico"), content=content)
 
+# Sperren
+
+def close_dialogs():
+    # offene Dialoge schließen, z. B. Benennen mit sichtbarem Passwort
+    for widget in root.winfo_children():
+        if isinstance(widget, tk.Toplevel):
+            widget.destroy()
+
+
+def lock_app():
+    if vm.locked:
+        return
+    close_dialogs()
+    try:
+        service.clear()
+    except Exception as error:
+        print(f"Zwischenablage konnte nicht geleert werden: {error}")
+    search_entry.delete(0, "end")
+
+    repository = vm.history
+    vm.lock()            # Views räumen auf
+    repository.close()   # Klartext und Schlüssel entfernen
+
+    lock_view = LoginView(root, session["header"], on_unlocked_again, locked=True)
+    lock_view.place(relx=0, rely=0, relwidth=1, relheight=1)
+    lock_view.lift()
+    session["lock_view"] = lock_view
+
+
+def on_unlocked_again(new_vault, _is_new, header_changed):
+    # wie bei der ersten Anmeldung: None bei Erfolg, sonst Fehlertext
+    try:
+        repository = open_api_data(api, new_vault, False, header_changed)
+    except (OSError, ValueError, ApiError, ServiceUnavailable) as error:
+        return f"Die Daten konnten nicht geöffnet werden: {error}"
+    session["header"] = new_vault.header
+    vm.unlock(repository)
+    # erst nach diesem Callback entfernen, die Anmeldeseite räumt noch auf
+    root.after_idle(session["lock_view"].destroy)
+    session["lock_view"] = None
+    return None
 #  Daten
 
 current_view = {"name": "Kacheln"}
@@ -1423,6 +1503,8 @@ hint_label.pack(side="bottom", fill="x", padx=16, pady=(8, 12))
 
 # Start
 root.protocol("WM_DELETE_WINDOW", on_close)
+root.bind_all("<Control-l>", lambda _event: lock_app())
+root.bind_all("<Control-L>", lambda _event: lock_app())   # auch mit Feststelltaste
 vm.subscribe(refresh_header)
 card_view.refresh()
 table_view.refresh()

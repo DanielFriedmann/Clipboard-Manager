@@ -43,6 +43,9 @@ class ClipboardViewModel:
         self._limit = PAGE_SIZE          # so viele werden gerade angezeigt
         self.scroll_to_top = False       # neue Ansicht: Views springen nach oben
 
+        self.locked = False              # gesperrt: keine Daten, Views zeigen nichts
+        self._locked_group_id = None     # Gruppe, die nach dem Entsperren wieder gewählt wird
+
     # Benachrichtigung / Abonnement
 
     def subscribe(self, callback):
@@ -64,6 +67,11 @@ class ClipboardViewModel:
 
     def process_incoming(self):
         # läuft im GUI-Thread, wird regelmäßig von der Oberfläche aufgerufen
+
+        if self.locked:
+            self._discard_incoming()   # gesperrt: nichts sammeln
+            return
+        
         changed = False
         while not self._incoming.empty():
             capture = self._incoming.get()
@@ -77,6 +85,29 @@ class ClipboardViewModel:
             changed = True
         if changed:
             self._notify()
+
+    def _discard_incoming(self):
+        while not self._incoming.empty():
+            self._incoming.get()
+
+    # Sperren
+
+    def lock(self):
+        # alles vergessen, was Klartext enthält; die Views räumen bei _notify auf
+        self._locked_group_id = self.selected_group_id
+        self.locked = True
+        self.history = None
+        self.checked.clear()
+        self.selected_group = None
+        self.search = ""
+        self._discard_incoming()
+        self._notify()
+
+    def unlock(self, repository):
+        self.history = repository
+        self.locked = False
+        self._reset_paging()
+        self.select_group_by_id(self._locked_group_id)   # zeichnet alles neu
 
     # Daten für die Ansichten
 
@@ -272,7 +303,6 @@ class ClipboardViewModel:
             return ClipboardViewModel._shorten(name, max_length)
         return name
 
-
     @staticmethod
     def group_color(item):
         return item.clipboard_group.color if item.clipboard_group else "#9e9e9e"
@@ -431,6 +461,8 @@ class ClipboardViewModel:
 
     @property
     def selected_group_id(self):
+        if self.locked:
+            return self._locked_group_id   # z. B. beim Schließen im gesperrten Zustand
         return self.selected_group.id if self.selected_group else None
 
     def add_group(self, name, color):

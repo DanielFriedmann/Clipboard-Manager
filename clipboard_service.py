@@ -138,6 +138,15 @@ class ClipboardService:
             finally:
                 win32clipboard.CloseClipboard()
 
+    def clear(self):
+        # Windows-Zwischenablage leeren, z. B. beim Sperren
+        with self._lock:
+            self._open()
+            try:
+                win32clipboard.EmptyClipboard()
+            finally:
+                win32clipboard.CloseClipboard()
+
     # Nachrichten von Windows
 
     def _wnd_proc(self, hwnd, msg, wparam, lparam):
