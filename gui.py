@@ -26,6 +26,7 @@ from startup import open_api_data, read_header_from_service
 from service_runner import ServiceRunner
 from service.auth import load_or_create_token
 from lock_watcher import LockWatcher
+from settings_window import SettingsWindow
 
 # Dieselbe Datei startet auch den Speicherdienst (wichtig für die .exe)
 if "--service" in sys.argv:
@@ -1377,6 +1378,9 @@ def close_dialogs():
     for widget in root.winfo_children():
         if isinstance(widget, tk.Toplevel):
             widget.destroy()
+    window = session.get("settings_window")
+    if window is not None and window.winfo_exists():
+        window.destroy()
 
 
 def lock_app():
@@ -1412,16 +1416,6 @@ def on_unlocked_again(new_vault, _is_new, header_changed):
     session["lock_view"] = None
     return None
 
-# Einstellungen
-
-LOCK_CHOICES = [
-    (5, "5 Minuten"),
-    (15, "15 Minuten"),
-    (30, "30 Minuten"),
-    (60, "60 Minuten"),
-    (1, "1 Minute"),
-    (0, "Nie"),
-]
 
 
 def set_setting(key, value):
@@ -1432,32 +1426,19 @@ def set_setting(key, value):
     except OSError as error:
         print(f"Einstellungen konnten nicht gespeichert werden: {error}")
 
-
-def open_settings_menu():
-    menu = tk.Menu(root, tearoff=0)
-
-    # Variablen am Menü festhalten, sonst räumt Python sie zu früh weg
-    menu.lock_var = tk.IntVar(value=settings["lock_minutes"])
-    menu.windows_var = tk.BooleanVar(value=settings["lock_on_windows_lock"])
-
-    # folgen in H3
-    menu.add_command(label="Passwort ändern …", state="disabled")
-    menu.add_command(label="Neuen Wiederherstellungsschlüssel erzeugen …", state="disabled")
-    menu.add_separator()
-
-    lock_menu = tk.Menu(menu, tearoff=0)
-    for minutes, label in LOCK_CHOICES:
-        lock_menu.add_radiobutton(label=label, value=minutes, variable=menu.lock_var,
-                                  command=lambda m=minutes: set_setting("lock_minutes", m))
-    menu.add_cascade(label="Automatisch sperren nach", menu=lock_menu)
-    menu.add_checkbutton(label="Beim Sperren von Windows mitsperren", variable=menu.windows_var,
-                         command=lambda: set_setting("lock_on_windows_lock",
-                                                     menu.windows_var.get()))
-    menu.add_separator()
-    menu.add_command(label="Jetzt sperren", accelerator="Strg+L", command=lock_app)
-
-    button = sidebar.settings_button
-    menu.tk_popup(button.winfo_rootx(), button.winfo_rooty())
+def open_settings():
+    # nur ein Einstellungsfenster gleichzeitig
+    window = session.get("settings_window")
+    if window is not None and window.winfo_exists():
+        window.focus_set()
+        return
+    session["settings_window"] = SettingsWindow(
+        root, settings,
+        on_change=set_setting,
+        on_lock_now=lock_app,
+        version=APP_VERSION,
+        icon_path=resource_path("icon.ico"),
+    )
 
 #  Daten
 
@@ -1487,7 +1468,7 @@ def on_close():
 sidebar = GroupSidebar(root, vm)
 sidebar.pack(side="left", fill="y")
 sidebar.toggle_button.configure(command=on_sidebar_toggle)
-sidebar.settings_button.configure(command=open_settings_menu)
+sidebar.settings_button.configure(command=open_settings)
 
 main_area = ctk.CTkFrame(root, fg_color="transparent")
 main_area.pack(side="left", fill="both", expand=True)
