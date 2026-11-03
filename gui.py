@@ -25,6 +25,7 @@ from api_client import ApiClient, ApiError, ServiceUnavailable
 from startup import open_api_data, read_header_from_service
 from service_runner import ServiceRunner
 from service.auth import load_or_create_token
+from lock_watcher import LockWatcher
 
 # Dieselbe Datei startet auch den Speicherdienst (wichtig für die .exe)
 if "--service" in sys.argv:
@@ -827,7 +828,7 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
         )
         self.settings_button.pack(fill="x")
 
-        Tooltip(self.settings_button, "Einstellungen (folgt)")
+        Tooltip(self.settings_button, "Einstellungen")
 
         # Mitte: scrollbare Liste füllt den Platz dazwischen
         self.list = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius = 0)
@@ -1065,7 +1066,7 @@ class GroupSidebar(ctk.CTkFrame):  # Gruppen-Seitenleiste
             "Gruppe löschen",
             f"Gruppe „{group.name}“ löschen?\nIhre Einträge wandern nach „{self.vm.default_group.name}“.",
             parent=self.winfo_toplevel(),
-        ):
+        ) and not self.vm.locked:
             self.vm.remove_group(group)
 
 #  Verknüpfung: Daten, ViewModel, Service
@@ -1233,6 +1234,10 @@ def on_clear_click():
     text = "1 Eintrag" if count == 1 else f"{count} Einträge"
     if not messagebox.askyesno("Löschen", f"{text} löschen?\nFavoriten bleiben erhalten.", parent=root):
         return
+    if vm.locked:
+        return   # während der Rückfrage gesperrt
+
+    vm.delete_visible()
 
     vm.delete_visible()
 
@@ -1262,9 +1267,10 @@ def open_filter_menu():
     menu.tk_popup(x, y)
 
 def on_delete_checked():
-        count = vm.checked_count
-        text = "1 Eintrag" if count == 1 else f"{count} Einträge"
-        if messagebox.askyesno("Markierte löschen", f"{text} endgültig löschen?", parent=root):
+    count = vm.checked_count
+    text = "1 Eintrag" if count == 1 else f"{count} Einträge"
+    if messagebox.askyesno("Markierte löschen", f"{text} endgültig löschen?", parent=root):
+        if not vm.locked:   # während der Rückfrage gesperrt?
             vm.delete_checked()
 
 def on_view_change(choice):
@@ -1405,6 +1411,54 @@ def on_unlocked_again(new_vault, _is_new, header_changed):
     root.after_idle(session["lock_view"].destroy)
     session["lock_view"] = None
     return None
+
+# Einstellungen
+
+LOCK_CHOICES = [
+    (5, "5 Minuten"),
+    (15, "15 Minuten"),
+    (30, "30 Minuten"),
+    (60, "60 Minuten"),
+    (1, "1 Minute"),
+    (0, "Nie"),
+]
+
+
+def set_setting(key, value):
+    # sofort speichern, damit nichts verloren geht, falls die App abstürzt
+    settings[key] = value
+    try:
+        save_settings(settings)
+    except OSError as error:
+        print(f"Einstellungen konnten nicht gespeichert werden: {error}")
+
+
+def open_settings_menu():
+    menu = tk.Menu(root, tearoff=0)
+
+    # Variablen am Menü festhalten, sonst räumt Python sie zu früh weg
+    menu.lock_var = tk.IntVar(value=settings["lock_minutes"])
+    menu.windows_var = tk.BooleanVar(value=settings["lock_on_windows_lock"])
+
+    # folgen in H3
+    menu.add_command(label="Passwort ändern …", state="disabled")
+    menu.add_command(label="Neuen Wiederherstellungsschlüssel erzeugen …", state="disabled")
+    menu.add_separator()
+
+    lock_menu = tk.Menu(menu, tearoff=0)
+    for minutes, label in LOCK_CHOICES:
+        lock_menu.add_radiobutton(label=label, value=minutes, variable=menu.lock_var,
+                                  command=lambda m=minutes: set_setting("lock_minutes", m))
+    menu.add_cascade(label="Automatisch sperren nach", menu=lock_menu)
+    menu.add_checkbutton(label="Beim Sperren von Windows mitsperren", variable=menu.windows_var,
+                         command=lambda: set_setting("lock_on_windows_lock",
+                                                     menu.windows_var.get()))
+    menu.add_separator()
+    menu.add_command(label="Jetzt sperren", accelerator="Strg+L", command=lock_app)
+
+    button = sidebar.settings_button
+    menu.tk_popup(button.winfo_rootx(), button.winfo_rooty())
+
 #  Daten
 
 current_view = {"name": "Kacheln"}
@@ -1433,6 +1487,7 @@ def on_close():
 sidebar = GroupSidebar(root, vm)
 sidebar.pack(side="left", fill="y")
 sidebar.toggle_button.configure(command=on_sidebar_toggle)
+sidebar.settings_button.configure(command=open_settings_menu)
 
 main_area = ctk.CTkFrame(root, fg_color="transparent")
 main_area.pack(side="left", fill="both", expand=True)
@@ -1520,4 +1575,6 @@ root.after(300, restore_window)
 
 threading.Thread(target=service.start, daemon=True).start()
 root.after(100, poll_incoming)
+lock_watcher = LockWatcher(root, lock_app, settings)
+lock_watcher.start()
 root.mainloop()
