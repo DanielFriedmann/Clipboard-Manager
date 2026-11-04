@@ -301,7 +301,7 @@ class Card(ctk.CTkFrame):  # eine Kachel, wird beim Neuzeichnen wiederverwendet
         font = tkfont.Font(font=label._label.cget("font"))
         return font.measure(shown) > label.winfo_width()
     
-MAX_CARDS = 300   # so viele Kacheln werden höchstens aufbewahrt, auch unsichtbare
+MAX_CARDS = 60   # so viele Kacheln werden höchstens aufbewahrt, auch unsichtbare
 
 class CardView(ctk.CTkScrollableFrame):  # Kachel-Ansicht
     def __init__(self, master, vm, sidebar, on_edit):
@@ -1488,8 +1488,7 @@ layout = {"narrow": False, "auto_collapsed": False}
 
 
 def on_close():
-
-    # Einstellungen festhalten    
+    # Zustand lesen, solange das Fenster noch sichtbar ist
     settings["window_maximized"] = root.state() == "zoomed"
     if not settings["window_maximized"]:
         # bei maximiertem Fenster die letzte normale Größe behalten
@@ -1497,13 +1496,27 @@ def on_close():
     settings["sidebar_collapsed"] = sidebar.collapsed and not layout["auto_collapsed"]
     settings["view"] = current_view["name"]
     settings["selected_group"] = vm.selected_group_id
+
+    # sofort ausblenden, der Rest passiert unsichtbar
+    root.withdraw()
+    root.update_idletasks()
+
     try:
         save_settings(settings)
     except OSError as error:
         print(f"Einstellungen konnten nicht gespeichert werden: {error}")
 
     stop_service()
-    root.destroy()
+
+    # Klartext und Schlüssel selbst überschreiben, bevor der Prozess endet
+    try:
+        if vm.history is not None:
+            vm.history.close()
+    except Exception as error:
+        print(f"Aufräumen fehlgeschlagen: {error}")
+
+    # nicht tausende Widgets einzeln abbauen: Windows gibt beim Beenden alles frei
+    os._exit(0)
 
 
 sidebar = GroupSidebar(root, vm)
