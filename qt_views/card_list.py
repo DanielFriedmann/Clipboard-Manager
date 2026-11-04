@@ -1,12 +1,13 @@
 import html
 
-from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QFontMetrics, QPainter, QPen
-from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate, QToolTip
+from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QCursor, QDrag, QFontMetrics, QPainter, QPen
+from PySide6.QtWidgets import QApplication, QListView, QStyle, QStyledItemDelegate, QToolTip
 
 from viewmodel import MASK
 
 from . import style
+from .drag import ITEM_MIME, dragged_items, items_mime, set_preview
 from .links import item_link, open_link
 
 ITEM_ROLE = Qt.ItemDataRole.UserRole   # liefert den ClipboardItem einer Zeile
@@ -92,10 +93,17 @@ class CardDelegate(QStyledItemDelegate):
     def __init__(self, vm, parent=None):
         super().__init__(parent)
         self.vm = vm
+        self._font_cache = None
 
     # Schriften und Maße, alles aus der Systemschrift abgeleitet
 
     def _fonts(self):
+        # einmal anlegen statt bei jeder Kachel neu
+        if self._font_cache is None:
+            self._font_cache = self._make_fonts()
+        return self._font_cache
+
+    def _make_fonts(self):
         return {
             "plain": style.font("normal"),
             "title": style.font("normal", bold=True),
@@ -340,6 +348,7 @@ class CardListView(QListView):
     # Kachelansicht: zeigt das Model mit dem Delegate, Qt zeichnet nur die sichtbaren Zeilen
 
     copied = Signal(object)
+    menu_requested = Signal(object, QPoint)   # Eintrag und Bildschirmposition für das Kontextmenü
 
     def __init__(self, vm, on_edit=None, parent=None):
         super().__init__(parent)
@@ -361,9 +370,12 @@ class CardListView(QListView):
         self.setResizeMode(QListView.ResizeMode.Adjust)   # Kacheln wachsen mit der Fensterbreite
         self.setMouseTracking(True)      # für Hover auf Kacheln und Knöpfen
         self.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        self.setAcceptDrops(True)
         self.apply_colors()
 
         self._scroll = 0
+        self._press_pos = None   # Startpunkt für ein mögliches Ziehen
+        self._drop = None        # (Zeile, danach) für die Einfügelinie
         self.list_model.modelAboutToBeReset.connect(self._remember_scroll)
         self.list_model.modelReset.connect(self._restore_scroll)
 
@@ -381,21 +393,106 @@ class CardListView(QListView):
         else:
             self.verticalScrollBar().setValue(self._scroll)
 
+    # Maus
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_pos = event.position().toPoint()
+        super().mousePressEvent(event)
+
     def mouseMoveEvent(self, event):
         super().mouseMoveEvent(event)
+        pos = event.position().toPoint()
+        if (event.buttons() & Qt.MouseButton.LeftButton and self._press_pos is not None
+                and (pos - self._press_pos).manhattanLength() >= QApplication.startDragDistance()):
+            self._start_drag(self.indexAt(self._press_pos))
+            return
         # nur die Kachel unter dem Zeiger neu zeichnen, wegen Hover auf den Knöpfen
-        index = self.indexAt(event.position().toPoint())
-        self.viewport().update(self.visualRect(index))
+        self.viewport().update(self.visualRect(self.indexAt(pos)))
+
+    def mouseReleaseEvent(self, event):
+        self._press_pos = None
+        super().mouseReleaseEvent(event)
 
     def leaveEvent(self, event):
         super().leaveEvent(event)
         self.viewport().update()
 
+    def contextMenuEvent(self, event):
+        item = self.indexAt(event.pos()).data(ITEM_ROLE)
+        if item is not None:
+            self.menu_requested.emit(item, event.globalPos())
+
+    # Ziehen: in eine Gruppe der Seitenleiste oder an eine andere Stelle
+
+    def _start_drag(self, index):
+        self._press_pos = None
+        item = index.data(ITEM_ROLE)
+        if item is None:
+            return
+        drag = QDrag(self)
+        drag.setMimeData(items_mime([item]))
+        set_preview(drag, self, [item], self.vm)   # kleine Vorschau statt der ganzen Kachel
+        drag.exec(Qt.DropAction.MoveAction)
+        self._set_drop(None)
+
+    def _drop_target(self, pos):
+        # Zeile und ob davor oder danach eingefügt wird
+        index = self.indexAt(pos)
+        if not index.isValid():
+            return (self.list_model.rowCount() - 1, True) if self.list_model.rowCount() else None
+        rect = self.visualRect(index)
+        return index.row(), pos.y() > rect.center().y()
+
+    def _set_drop(self, drop):
+        if drop != self._drop:
+            self._drop = drop
+            self.viewport().update()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat(ITEM_MIME) and self.vm.can_drag:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        items = dragged_items(self.vm, event.mimeData())
+        if len(items) != 1 or not self.vm.can_drag:
+            self._set_drop(None)
+            event.ignore()
+            return
+        self._set_drop(self._drop_target(event.position().toPoint()))
+        event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self._set_drop(None)
+
+    def dropEvent(self, event):
+        items = dragged_items(self.vm, event.mimeData())
+        drop = self._drop_target(event.position().toPoint())
+        self._set_drop(None)
+        if len(items) != 1 or drop is None or not self.vm.can_drag:
+            event.ignore()
+            return
+        row, after = drop
+        target = self.list_model.index(row).data(ITEM_ROLE)
+        event.acceptProposedAction()
+        self.vm.move(items[0], target, after=after)
+
+    # Zeichnen
+
     def paintEvent(self, event):
         super().paintEvent(event)
+        painter = QPainter(self.viewport())
         if self.list_model.rowCount() == 0 and not self.vm.locked:
-            painter = QPainter(self.viewport())
             painter.setFont(style.font("normal"))
             painter.setPen(style.color("muted"))
             painter.drawText(self.viewport().rect().adjusted(0, 24, 0, 0),
                              Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, self.vm.empty_text)
+        if self._drop is not None:
+            # Einfügelinie zwischen zwei Kacheln
+            row, after = self._drop
+            rect = self.visualRect(self.list_model.index(row))
+            y = rect.bottom() if after else rect.top()
+            painter.setPen(QPen(style.color("accent"), 3))
+            painter.drawLine(rect.left() + 8, y, rect.right() - 8, y)

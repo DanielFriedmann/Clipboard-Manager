@@ -1,10 +1,11 @@
 from PySide6.QtCore import QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QPainter
-from PySide6.QtWidgets import (QColorDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QMenu,
+from PySide6.QtGui import QColor, QDrag, QFontMetrics, QPainter, QPen
+from PySide6.QtWidgets import (QApplication, QColorDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QMenu,
                                QMessageBox, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout,
                                QWidget)
 
 from . import style
+from .drag import ITEM_MIME, dragged_group, dragged_items, group_mime
 
 EXPANDED_WIDTH = 210
 COLLAPSED_WIDTH = 52
@@ -20,8 +21,12 @@ class GroupRow(QWidget):
     menu_requested = Signal(object)   # globale Position für das Kontextmenü
 
     def __init__(self, name, symbol, color, count=None, selected=False, collapsed=False,
-                 muted=False, tooltip=None, parent=None):
+                 muted=False, tooltip=None, group=None, sidebar=None, parent=None):
         super().__init__(parent)
+        self.group = group              # None bei "Alle Einträge" und "Neue Gruppe"
+        self.sidebar = sidebar          # entscheidet, was hier abgelegt werden darf
+        self._press_pos = None
+        self._drop = None               # "into", "before" oder "after" während eines Drops
         self.name = name
         self.symbol = symbol
         self.color = color              # None: neutrales Quadrat, z. B. "Alle Einträge"
@@ -33,6 +38,7 @@ class GroupRow(QWidget):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         if tooltip:
             self.setToolTip(tooltip)
+        self.setAcceptDrops(group is not None)
 
     def sizeHint(self):
         return QSize(COLLAPSED_WIDTH if self.collapsed else EXPANDED_WIDTH,
@@ -46,9 +52,60 @@ class GroupRow(QWidget):
         self._hovered = False
         self.update()
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_pos = event.position().toPoint()
+
+    def mouseMoveEvent(self, event):
+        # eigene Gruppen lassen sich ziehen, um die Reihenfolge zu ändern
+        if self._press_pos is None or self.sidebar is None or not self.sidebar.is_custom(self.group):
+            return
+        if (event.position().toPoint() - self._press_pos).manhattanLength() >= QApplication.startDragDistance():
+            self._press_pos = None
+            drag = QDrag(self)
+            drag.setMimeData(group_mime(self.group))
+            drag.setPixmap(self.grab())
+            drag.exec(Qt.DropAction.MoveAction)
+
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
+        pressed, self._press_pos = self._press_pos, None
+        if (pressed is not None and event.button() == Qt.MouseButton.LeftButton
+                and self.rect().contains(event.position().toPoint())):
             self.clicked.emit()
+
+    # Ablegen: Einträge in die Gruppe, Gruppen davor oder dahinter
+
+    def _drop_kind(self, event):
+        if self.sidebar is None:
+            return None
+        return self.sidebar.drop_kind(self, event.mimeData(), event.position().toPoint())
+
+    def dragEnterEvent(self, event):
+        self.dragMoveEvent(event)
+
+    def dragMoveEvent(self, event):
+        kind = self._drop_kind(event)
+        if kind != self._drop:
+            self._drop = kind
+            self.update()
+        if kind is None:
+            event.ignore()
+        else:
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self._drop = None
+        self.update()
+
+    def dropEvent(self, event):
+        kind = self._drop_kind(event)
+        self._drop = None
+        self.update()
+        if kind is None:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        self.sidebar.drop(self, event.mimeData(), kind)
 
     def contextMenuEvent(self, event):
         self.menu_requested.emit(event.globalPos())
@@ -66,6 +123,17 @@ class GroupRow(QWidget):
         if self.selected:
             painter.setBrush(style.color("accent"))
             painter.drawRoundedRect(QRect(rect.left() + 2, rect.top() + 6, 3, rect.height() - 12), 2, 2)
+
+        # Ziel beim Ablegen: Rahmen um die Gruppe oder Linie davor bzw. dahinter
+        accent = style.color("accent")
+        if self._drop == "into":
+            painter.setPen(QPen(accent, 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 6, 6)
+        elif self._drop in ("before", "after"):
+            y = rect.top() if self._drop == "before" else rect.bottom()
+            painter.setPen(QPen(accent, 3))
+            painter.drawLine(rect.left() + 4, y, rect.right() - 4, y)
 
         # Quadrat mit Symbol oder Anfangsbuchstaben
         if self.collapsed:
@@ -185,6 +253,8 @@ class GroupSidebar(QFrame):
         while self.rows.count():
             child = self.rows.takeAt(0).widget()
             if child is not None:
+                child.hide()              # sofort weg, gelöscht wird erst später
+                child.setParent(None)
                 child.deleteLater()
         if self.vm.locked:
             return   # gesperrt: keine Gruppennamen zeigen
@@ -213,14 +283,37 @@ class GroupSidebar(QFrame):
         tooltip = self.vm.group_tooltip(group, name) if self.collapsed else None
         row = GroupRow(name, symbol, color, count=self.vm.group_count(group),
                        selected=group is self.vm.selected_group, collapsed=self.collapsed,
-                       tooltip=tooltip)
+                       tooltip=tooltip, group=group, sidebar=self)
         row.clicked.connect(lambda g=group: self.vm.select_group(g))
-        if self._is_custom(group):
+        if self.is_custom(group):
             row.menu_requested.connect(lambda pos, g=group: self._on_group_menu(pos, g))
         self.rows.addWidget(row)
 
-    def _is_custom(self, group):
+    def is_custom(self, group):
         return group is not None and group is not self.vm.default_group
+
+    # Ziehen und Ablegen, von den Zeilen aufgerufen
+
+    def drop_kind(self, row, mime, pos):
+        # None: hier nicht ablegbar, sonst "into", "before" oder "after"
+        if self.vm.locked or row.group is None:
+            return None
+        if mime.hasFormat(ITEM_MIME):
+            return "into"
+        dragged = dragged_group(self.vm, mime)
+        if dragged is not None and self.is_custom(row.group) and dragged is not row.group:
+            return "after" if pos.y() > row.height() / 2 else "before"
+        return None
+
+    def drop(self, row, mime, kind):
+        if kind == "into":
+            items = dragged_items(self.vm, mime)
+            if items:
+                self.vm.assign_items_to_group(items, row.group)
+        else:
+            dragged = dragged_group(self.vm, mime)
+            if dragged is not None:
+                self.vm.move_group(dragged, row.group, after=kind == "after")
 
     # Gruppen anlegen und löschen
 

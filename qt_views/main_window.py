@@ -1,12 +1,15 @@
 from PySide6.QtCore import QByteArray, Qt, Signal
 from PySide6.QtGui import QActionGroup, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QButtonGroup, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
-                               QMessageBox, QPushButton, QToolButton, QVBoxLayout, QWidget)
+                               QMessageBox, QPushButton, QStackedWidget, QToolButton, QVBoxLayout,
+                               QWidget)
 
 from . import style
 from .card_list import CardListView
 from .dialogs import EditDialog
+from .item_menu import show_item_menu
 from .sidebar import GroupSidebar
+from .table_view import ItemTableView
 from .toast import Toast
 
 NARROW_BELOW = 740   # unter dieser Fensterbreite schmaler Modus
@@ -21,7 +24,11 @@ SORT_OPTIONS = {
     "Favoriten": "favorite",
 }
 
-CARD_HINT = "Klicken zum Kopieren · ↗ öffnet Links"
+VIEWS = ("Kacheln", "Tabelle")
+HINTS = {
+    "Kacheln": "Klicken zum Kopieren · Ziehen zum Sortieren oder in eine Gruppe · Rechtsklick für mehr",
+    "Tabelle": "Doppelklick zum Kopieren · ☐ zum Markieren · Spaltenkopf zum Sortieren · Rechtsklick für mehr",
+}
 
 
 class MainWindow(QMainWindow):
@@ -61,11 +68,17 @@ class MainWindow(QMainWindow):
         main.addLayout(self._build_header())
         main.addLayout(self._build_toolbar())
 
+        # Ansichten: Kacheln und Tabelle zeigen dieselben Einträge
         self.card_view = CardListView(vm, on_edit=self.open_edit_dialog)
-        self.card_view.copied.connect(self._on_copied)
-        main.addWidget(self.card_view, 1)
+        self.table_view = ItemTableView(vm)
+        self.stack = QStackedWidget()
+        for view in (self.card_view, self.table_view):
+            view.copied.connect(self._on_copied)
+            view.menu_requested.connect(self.open_item_menu)
+            self.stack.addWidget(view)
+        main.addWidget(self.stack, 1)
 
-        self.hint_label = QLabel(CARD_HINT)
+        self.hint_label = QLabel()
         self.hint_label.setFont(style.font("small"))
         self.hint_label.setStyleSheet(f"color: {style.color('muted').name()};")
         main.addWidget(self.hint_label)
@@ -77,7 +90,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+F"), self, self.search_entry.setFocus)
 
         vm.subscribe(self.refresh_header)
-        self.refresh_header()
+        self.set_view("Kacheln")
 
     # Aufbau
 
@@ -88,9 +101,9 @@ class MainWindow(QMainWindow):
         header.addWidget(self.title_label)
         header.addSpacing(16)
 
-        # Umschalter Kacheln / Tabelle; die Tabelle kommt in Schritt 3
+        # Umschalter Kacheln / Tabelle
         self.view_buttons = QButtonGroup(self)
-        for index, (name, symbol) in enumerate((("Kacheln", "▤"), ("Tabelle", "▦"))):
+        for index, (name, symbol) in enumerate(zip(VIEWS, ("▤", "▦"))):
             button = QToolButton()
             button.setText(symbol)
             button.setCheckable(True)
@@ -98,9 +111,7 @@ class MainWindow(QMainWindow):
             button.setFixedSize(32, 26)
             self.view_buttons.addButton(button, index)
             header.addWidget(button)
-        self.view_buttons.button(0).setChecked(True)
-        self.view_buttons.button(1).setEnabled(False)
-        self.view_buttons.button(1).setToolTip("Tabelle (folgt)")
+        self.view_buttons.idClicked.connect(lambda index: self.set_view(VIEWS[index]))
 
         header.addStretch(1)
         self.count_label = QLabel()
@@ -129,6 +140,11 @@ class MainWindow(QMainWindow):
         self.filter_button.setCheckable(True)   # gedrückt dargestellt, solange "Nur Favoriten" aktiv ist
         self.filter_button.clicked.connect(self.open_filter_menu)
         toolbar.addWidget(self.filter_button)
+
+        # nur in der Tabelle sichtbar
+        self.delete_checked_button = QPushButton()
+        self.delete_checked_button.clicked.connect(self.on_delete_checked)
+        toolbar.insertWidget(1, self.delete_checked_button)
         return toolbar
 
     # Kopfzeile aktualisieren
@@ -144,6 +160,24 @@ class MainWindow(QMainWindow):
         self.count_label.setText(vm.count_text)
         self.clear_button.setText("Löschen" if self.narrow else vm.clear_button_text)
         self.filter_button.setChecked(vm.favorites_only)
+
+        count = vm.checked_count
+        self.delete_checked_button.setText(f"Löschen ({count})" if self.narrow
+                                           else f"Markierte löschen ({count})")
+        self.delete_checked_button.setEnabled(count > 0)
+
+    # Ansicht wechseln
+
+    def set_view(self, name):
+        self.current_view = name
+        index = VIEWS.index(name)
+        self.view_buttons.button(index).setChecked(True)
+        self.stack.setCurrentIndex(index)
+        table = name == "Tabelle"
+        self.delete_checked_button.setVisible(table)
+        self.clear_button.setVisible(not table)
+        self.hint_label.setText(HINTS[name])
+        self.refresh_header()
 
     # Sortieren und filtern
 
@@ -180,15 +214,28 @@ class MainWindow(QMainWindow):
         if answer == QMessageBox.StandardButton.Yes and not self.vm.locked:
             self.vm.delete_visible()
 
+    def on_delete_checked(self):
+        text = self.vm.entries_text(self.vm.checked_count)
+        answer = QMessageBox.question(self, "Markierte löschen", f"{text} endgültig löschen?")
+        if answer == QMessageBox.StandardButton.Yes and not self.vm.locked:
+            self.vm.delete_checked()
+
     # Kopieren und Benennen
 
     def _on_copied(self, item):
-        self.toast.show_message("Passwort kopiert" if item.is_password else "In die Zwischenablage kopiert")
+        self.show_copied("Passwort" if item.is_password else "Eintrag")
+
+    def show_copied(self, label):
+        # Rückmeldung nach jedem Kopieren
+        self.toast.show_message("In die Zwischenablage kopiert" if label == "Eintrag" else f"{label} kopiert")
 
     def copy_detail(self, text, label):
         # Benutzername oder Adresse aus dem Dialog
         self.vm.copy_text(text)
-        self.toast.show_message(f"{label} kopiert")
+        self.show_copied(label)
+
+    def open_item_menu(self, item, global_pos):
+        show_item_menu(self, global_pos, self.vm, item, self.open_edit_dialog, self.show_copied)
 
     def open_edit_dialog(self, item):
         content = self.vm.item_content(item) if item.is_password else None
@@ -223,6 +270,7 @@ class MainWindow(QMainWindow):
             self.auto_collapsed = False
         self.count_label.setVisible(not narrow)
         self.hint_label.setVisible(not narrow)
+        self.table_view.set_compact(narrow)
         self.refresh_header()
 
     # Fensterzustand
@@ -234,11 +282,13 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(QByteArray.fromBase64(geometry.encode("ascii")))
         if self.settings.get("sidebar_collapsed") and not self.sidebar.collapsed:
             self.sidebar.toggle_collapsed()
+        if self.settings.get("view") in VIEWS:
+            self.set_view(self.settings["view"])
 
     def save_state(self):
         self.settings["qt_geometry"] = bytes(self.saveGeometry().toBase64()).decode("ascii")
         self.settings["sidebar_collapsed"] = self.sidebar.collapsed and not self.auto_collapsed
-        self.settings["view"] = "Kacheln"
+        self.settings["view"] = self.current_view
         self.settings["selected_group"] = self.vm.selected_group_id
 
     def closeEvent(self, event):

@@ -48,3 +48,11 @@ def font(role="normal", bold=False, italic=False, family=None):
     if family:
         result.setFamily(family)
     return result
+
+
+def text_color_for(background):
+    # helle Hintergründe bekommen dunkle Schrift und umgekehrt (wie in widgets.py)
+    red, green, blue = int(background[1:3], 16), int(background[3:5], 16), int(background[5:7], 16)
+    # wahrgenommene Helligkeit: Grün wirkt am hellsten, Blau am dunkelsten
+    brightness = 0.299 * red + 0.587 * green + 0.114 * blue
+    return "#1a1a1a" if brightness > 150 else "#ffffff"
