@@ -7,15 +7,22 @@ from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate, QToolTip
 from viewmodel import MASK
 
 from . import style
+from .links import item_link, open_link
 
 ITEM_ROLE = Qt.ItemDataRole.UserRole   # liefert den ClipboardItem einer Zeile
 
-ROW_HEIGHT = 72        # Kachel 64 px plus 8 px Abstand
-CARD_MARGIN = 4
-TIME_WIDTH = 96
-ACTION_WIDTH = 96
-BUTTON_SIZE = QSize(28, 24)
-REVIEW_SIZE = QSize(76, 22)
+CARD_MARGIN = 4        # Abstand um jede Kachel
+PADDING = 10           # Innenabstand oben und unten
+BUTTON_WIDTH = 28
+GROUP_WIDTH = 96       # Breite für den Gruppennamen unter den Knöpfen
+NARROW_CARD = 560      # schmaler als das: ohne Uhrzeit und Datum
+
+BUTTON_TIPS = {
+    "open": "Im Browser öffnen",
+    "star": "Favorit",
+    "delete": "Löschen",
+    "review": "Namen und Benutzer eintragen",
+}
 
 
 class CardListModel(QAbstractListModel):
@@ -80,56 +87,83 @@ class CardDelegate(QStyledItemDelegate):
     # zeichnet eine Kachel; es gibt keine Widgets pro Eintrag, nur diese eine Zeichenfunktion
 
     edit_requested = Signal(object)   # "Benennen" geklickt
+    copied = Signal(object)           # Eintrag wurde in die Zwischenablage kopiert
 
     def __init__(self, vm, parent=None):
         super().__init__(parent)
         self.vm = vm
 
-    def sizeHint(self, option, index):
-        # Breite egal: die Liste gibt jeder Zeile die volle Breite
-        return QSize(1, ROW_HEIGHT)
+    # Schriften und Maße, alles aus der Systemschrift abgeleitet
 
-    # Aufteilung einer Kachel, gemeinsam für Zeichnen, Klicken und Tooltip
+    def _fonts(self):
+        return {
+            "plain": style.font("normal"),
+            "title": style.font("normal", bold=True),
+            "placeholder": style.font("normal", italic=True),
+            "small": style.font("small"),
+            "icon": style.font("normal", family=style.ICON_FAMILY),
+            "star": style.font("section"),
+        }
+
+    def _line_heights(self):
+        fonts = self._fonts()
+        first = QFontMetrics(fonts["title"]).height() + 6
+        second = QFontMetrics(fonts["small"]).height() + 2
+        return first, second
+
+    def sizeHint(self, option, index):
+        first, second = self._line_heights()
+        # Breite egal: die Liste gibt jeder Zeile die volle Breite
+        return QSize(1, 2 * CARD_MARGIN + 2 * PADDING + first + 2 + second)
+
+    # Aufteilung einer Kachel, gemeinsam für Zeichnen, Klicks und Tooltip
 
     def _layout(self, rect, item):
+        first, second = self._line_heights()
+        small = QFontMetrics(self._fonts()["small"])
         card = rect.adjusted(CARD_MARGIN, CARD_MARGIN, -CARD_MARGIN, -CARD_MARGIN)
-        parts = {"card": card}
+        top1 = card.top() + PADDING
+        top2 = top1 + first + 2
+        parts = {"card": card, "narrow": card.width() < NARROW_CARD}
 
+        # rechts: Knöpfe in Zeile 1, Gruppe in Zeile 2
         right = card.right() - 8
-        parts["delete"] = QRect(right - BUTTON_SIZE.width(), card.top() + 8,
-                                BUTTON_SIZE.width(), BUTTON_SIZE.height())
-        parts["star"] = parts["delete"].translated(-BUTTON_SIZE.width(), 0)
-        parts["group"] = QRect(right - ACTION_WIDTH, card.top() + 34, ACTION_WIDTH, 18)
+        buttons = ["delete", "star"] + (["open"] if item_link(item) else [])
+        for name in buttons:
+            parts[name] = QRect(right - BUTTON_WIDTH, top1, BUTTON_WIDTH, first)
+            right -= BUTTON_WIDTH
+        action_left = min(right, card.right() - 8 - GROUP_WIDTH)
+        parts["group"] = QRect(action_left, top2, card.right() - 8 - action_left, second)
 
-        time_right = right - ACTION_WIDTH - 8
-        parts["time"] = QRect(time_right - TIME_WIDTH, card.top() + 12, TIME_WIDTH, 18)
-        parts["date"] = QRect(time_right - TIME_WIDTH, card.top() + 32, TIME_WIDTH, 18)
+        # davor Uhrzeit über Datum, im schmalen Modus weggelassen
+        time_right = action_left - 12
+        if not parts["narrow"]:
+            time_width = small.horizontalAdvance("00.00.0000") + 8
+            parts["time"] = QRect(time_right - time_width, top1, time_width, first)
+            parts["date"] = QRect(time_right - time_width, top2, time_width, second)
+            time_right -= time_width + 16
 
         text_left = card.left() + 22
-        text_right = time_right - TIME_WIDTH - 16
         has_source = bool(self.vm.source_text(item))
-        line_top = card.top() + (10 if has_source else 21)
+        line_top = top1 if has_source else card.top() + (card.height() - first) // 2
 
         # rechts in der ersten Zeile: Benennen-Knopf und Maske
-        end = text_right
+        end = time_right
         if item.needs_review:
-            parts["review"] = QRect(end - REVIEW_SIZE.width(), line_top, REVIEW_SIZE.width(),
-                                    REVIEW_SIZE.height())
+            width = small.horizontalAdvance("Benennen") + 20
+            parts["review"] = QRect(end - width, line_top + 2, width, first - 4)
             end = parts["review"].left() - 12
         if item.is_password:
-            parts["mask"] = QRect(end - 64, line_top, 64, 22)
+            width = small.horizontalAdvance(MASK) + 4
+            parts["mask"] = QRect(end - width, line_top, width, first)
             end = parts["mask"].left() - 12
 
         if self.vm.kind_icon(item):
-            parts["icon"] = QRect(text_left, line_top, 18, 22)
+            parts["icon"] = QRect(text_left, line_top, 18, first)
             text_left += 26
-        parts["main"] = QRect(text_left, line_top, max(0, end - text_left), 22)
-        parts["source"] = QRect(card.left() + 22, card.top() + 34, max(0, text_right - card.left() - 22), 16)
+        parts["main"] = QRect(text_left, line_top, max(0, end - text_left), first)
+        parts["source"] = QRect(card.left() + 22, top2, max(0, time_right - card.left() - 22), second)
         return parts
-
-    def _main_font(self, item):
-        text_style = self.vm.text_style(item)
-        return style.font(13, bold=text_style == "title", italic=text_style == "placeholder")
 
     def _hovered_part(self, view, rect, item):
         # welcher Knopf liegt gerade unter dem Mauszeiger?
@@ -137,7 +171,7 @@ class CardDelegate(QStyledItemDelegate):
         if not rect.contains(pos):
             return None
         parts = self._layout(rect, item)
-        for name in ("star", "delete", "review"):
+        for name in BUTTON_TIPS:
             if name in parts and parts[name].contains(pos):
                 return name
         return None
@@ -149,6 +183,7 @@ class CardDelegate(QStyledItemDelegate):
         if item is None:
             return
         vm = self.vm
+        fonts = self._fonts()
         parts = self._layout(option.rect, item)
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
         hovered_part = self._hovered_part(option.widget, option.rect, item) if hovered else None
@@ -169,55 +204,60 @@ class CardDelegate(QStyledItemDelegate):
 
         text = style.color("text")
         muted = style.color("muted")
+        left_middle = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        right_middle = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
 
         # Symbol für Passwort oder Link
         if "icon" in parts:
-            painter.setFont(style.font(13, family=style.ICON_FAMILY))
+            painter.setFont(fonts["icon"])
             painter.setPen(muted)
-            painter.drawText(parts["icon"], Qt.AlignmentFlag.AlignVCenter, vm.kind_icon(item))
+            painter.drawText(parts["icon"], left_middle, vm.kind_icon(item))
 
         # Haupttext, bei Platzmangel mit "…" gekürzt
-        main_font = self._main_font(item)
-        painter.setFont(main_font)
-        painter.setPen(muted if vm.text_style(item) == "placeholder" else text)
-        main_text = QFontMetrics(main_font).elidedText(vm.display_text(item), Qt.TextElideMode.ElideRight,
-                                                       parts["main"].width())
-        painter.drawText(parts["main"], Qt.AlignmentFlag.AlignVCenter, main_text)
+        text_style = vm.text_style(item)
+        painter.setFont(fonts[text_style])
+        painter.setPen(muted if text_style == "placeholder" else text)
+        main_text = QFontMetrics(fonts[text_style]).elidedText(
+            vm.display_text(item), Qt.TextElideMode.ElideRight, parts["main"].width())
+        painter.drawText(parts["main"], left_middle, main_text)
 
-        small = style.font(11)
-        painter.setFont(small)
+        painter.setFont(fonts["small"])
         if "mask" in parts:
             painter.setPen(muted)
-            painter.drawText(parts["mask"], Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, MASK)
+            painter.drawText(parts["mask"], right_middle, MASK)
         if "review" in parts:
-            self._draw_button(painter, parts["review"], "Benennen", small,
+            self._draw_button(painter, parts["review"], "Benennen", fonts["small"],
                               filled=True, hovered=hovered_part == "review")
 
         source = vm.source_text(item)
         if source:
+            painter.setFont(fonts["small"])
             painter.setPen(muted)
-            painter.drawText(parts["source"], Qt.AlignmentFlag.AlignVCenter,
-                             QFontMetrics(small).elidedText(source, Qt.TextElideMode.ElideRight,
-                                                            parts["source"].width()))
+            painter.drawText(parts["source"], left_middle, QFontMetrics(fonts["small"]).elidedText(
+                source, Qt.TextElideMode.ElideRight, parts["source"].width()))
 
         # Uhrzeit über Datum
-        right = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        painter.setPen(text)
-        painter.drawText(parts["time"], right, vm.time_text(item))
-        painter.setPen(muted)
-        painter.drawText(parts["date"], right, vm.date_text(item))
+        if "time" in parts:
+            painter.setFont(fonts["small"])
+            painter.setPen(text)
+            painter.drawText(parts["time"], right_middle, vm.time_text(item))
+            painter.setPen(muted)
+            painter.drawText(parts["date"], right_middle, vm.date_text(item))
 
-        # Stern und X, darunter die Gruppe
-        star_font = style.font(15)
-        self._draw_button(painter, parts["star"], "★" if item.is_favorite else "☆", star_font,
+        # Öffnen, Stern und X, darunter die Gruppe
+        if "open" in parts:
+            self._draw_button(painter, parts["open"], "↗", fonts["star"], color=style.color("accent"),
+                              hovered=hovered_part == "open")
+        self._draw_button(painter, parts["star"], "★" if item.is_favorite else "☆", fonts["star"],
                           color=style.color("accent") if item.is_favorite else muted,
                           hovered=hovered_part == "star")
-        self._draw_button(painter, parts["delete"], "✕", style.font(13), color=muted,
+        self._draw_button(painter, parts["delete"], "✕", fonts["plain"], color=muted,
                           hovered=hovered_part == "delete")
         if vm.show_group:
-            painter.setFont(small)
+            painter.setFont(fonts["small"])
             painter.setPen(muted)
-            painter.drawText(parts["group"], right, vm.group_name(item, max_length=12))
+            painter.drawText(parts["group"], right_middle, QFontMetrics(fonts["small"]).elidedText(
+                vm.group_name(item), Qt.TextElideMode.ElideRight, parts["group"].width()))
 
         painter.restore()
 
@@ -230,7 +270,7 @@ class CardDelegate(QStyledItemDelegate):
             color = QColor("white")
         elif hovered:
             painter.setBrush(style.color("button_hover"))
-            painter.drawRoundedRect(rect, 6, 6)
+            painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 6, 6)
         painter.setFont(font)
         painter.setPen(color)
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
@@ -246,7 +286,9 @@ class CardDelegate(QStyledItemDelegate):
         parts = self._layout(option.rect, item)
         pos = event.position().toPoint()
 
-        if parts["star"].contains(pos):
+        if "open" in parts and parts["open"].contains(pos):
+            open_link(item_link(item))
+        elif parts["star"].contains(pos):
             self.vm.toggle_favorite(item)
         elif parts["delete"].contains(pos):
             self.vm.delete(item)
@@ -254,6 +296,7 @@ class CardDelegate(QStyledItemDelegate):
             self.edit_requested.emit(item)
         elif parts["card"].contains(pos):
             self.vm.copy(item)
+            self.copied.emit(item)
         return True
 
     # Tooltip
@@ -263,25 +306,40 @@ class CardDelegate(QStyledItemDelegate):
         if item is None or event.type() != QEvent.Type.ToolTip:
             return super().helpEvent(event, view, option, index)
         parts = self._layout(option.rect, item)
-        if not parts["main"].contains(event.pos()):
+        pos = event.pos()
+
+        for name, tip in BUTTON_TIPS.items():
+            if name in parts and parts[name].contains(pos):
+                QToolTip.showText(event.globalPos(), tip, view)
+                return True
+
+        text = self._tooltip(item, parts)
+        if text is None or not parts["main"].contains(pos):
             QToolTip.hideText()
             return True
-
-        metrics = QFontMetrics(self._main_font(item))
-        cut = metrics.horizontalAdvance(self.vm.display_text(item)) > parts["main"].width()
-        shortened = self.vm.display_text(item) != " ".join((item.content or "").split())
-        if not (self.vm.always_tooltip(item) or cut or shortened):
-            QToolTip.hideText()
-            return True
-
         # als HTML, damit Qt lange Zeilen umbricht; Inhalt vorher maskieren
-        text = html.escape(self.vm.tooltip_text(item)).replace("\n", "<br>")
-        QToolTip.showText(event.globalPos(), f"<p style='white-space: pre-wrap'>{text}</p>", view)
+        body = html.escape(text).replace("\n", "<br>")
+        QToolTip.showText(event.globalPos(), f"<p style='white-space: pre-wrap'>{body}</p>", view)
         return True
+
+    def _tooltip(self, item, parts):
+        vm = self.vm
+        display = vm.display_text(item)
+        font = self._fonts()[vm.text_style(item)]
+        cut = QFontMetrics(font).horizontalAdvance(display) > parts["main"].width()
+        shortened = not item.is_password and display != " ".join((item.content or "").split())
+        if not (vm.always_tooltip(item) or cut or shortened or parts["narrow"]):
+            return None
+        text = vm.tooltip_text(item)
+        if parts["narrow"] and not item.is_password:
+            text += f"\n\n{vm.datetime_text(item)}"   # Datum fehlt in der schmalen Kachel
+        return text
 
 
 class CardListView(QListView):
     # Kachelansicht: zeigt das Model mit dem Delegate, Qt zeichnet nur die sichtbaren Zeilen
+
+    copied = Signal(object)
 
     def __init__(self, vm, on_edit=None, parent=None):
         super().__init__(parent)
@@ -290,6 +348,7 @@ class CardListView(QListView):
         self.delegate = CardDelegate(vm, self)
         if on_edit is not None:
             self.delegate.edit_requested.connect(on_edit)
+        self.delegate.copied.connect(self.copied)
 
         self.setModel(self.list_model)
         self.setItemDelegate(self.delegate)
@@ -300,9 +359,9 @@ class CardListView(QListView):
         self.setFrameShape(QListView.Shape.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setResizeMode(QListView.ResizeMode.Adjust)   # Kacheln wachsen mit der Fensterbreite
-        self.apply_colors()
         self.setMouseTracking(True)      # für Hover auf Kacheln und Knöpfen
         self.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        self.apply_colors()
 
         self._scroll = 0
         self.list_model.modelAboutToBeReset.connect(self._remember_scroll)
@@ -324,7 +383,7 @@ class CardListView(QListView):
 
     def mouseMoveEvent(self, event):
         super().mouseMoveEvent(event)
-        # nur die Kachel unter dem Zeiger neu zeichnen, wegen Hover auf Stern, X und Benennen
+        # nur die Kachel unter dem Zeiger neu zeichnen, wegen Hover auf den Knöpfen
         index = self.indexAt(event.position().toPoint())
         self.viewport().update(self.visualRect(index))
 
@@ -336,7 +395,7 @@ class CardListView(QListView):
         super().paintEvent(event)
         if self.list_model.rowCount() == 0 and not self.vm.locked:
             painter = QPainter(self.viewport())
-            painter.setFont(style.font(13))
+            painter.setFont(style.font("normal"))
             painter.setPen(style.color("muted"))
             painter.drawText(self.viewport().rect().adjusted(0, 24, 0, 0),
                              Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, self.vm.empty_text)

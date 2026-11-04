@@ -389,8 +389,13 @@ class ClipboardViewModel:
     # Befehle
 
     def copy(self, item):
-        # kein _notify: die Änderung kommt über den Service ohnehin zurück
+        # kein _notify: eigene Kopien erfasst der Service nicht als neuen Eintrag
         self.service.set_text(self.history.get_content(item), sensitive=item.is_password)
+
+    def copy_text(self, text, sensitive=False):
+        # einzelne Angabe kopieren, z. B. Benutzername oder Adresse aus dem Dialog
+        if text:
+            self.service.set_text(text, sensitive=sensitive)
 
     def item_content(self, item):
         # bei Passwörtern wird der Inhalt erst jetzt geholt
