@@ -1,8 +1,8 @@
 from PySide6.QtCore import QByteArray, Qt, Signal
 from PySide6.QtGui import QActionGroup, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QButtonGroup, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
-                               QMessageBox, QPushButton, QStackedWidget, QToolButton, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QApplication, QButtonGroup, QDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
+                               QMessageBox, QPushButton, QStackedWidget, QToolButton, QToolTip,
+                               QVBoxLayout, QWidget)
 
 from . import style
 from .card_list import CardListView
@@ -34,7 +34,8 @@ HINTS = {
 class MainWindow(QMainWindow):
     # Hauptfenster: Seitenleiste, Kopfzeile, Suche und die Kachelansicht
 
-    closing = Signal()   # vor dem Schließen, z. B. um Einstellungen zu speichern
+    closing = Signal()          # vor dem Schließen, z. B. um Einstellungen zu speichern
+    lock_requested = Signal()   # Strg+L
 
     def __init__(self, vm, settings, title):
         super().__init__()
@@ -83,11 +84,18 @@ class MainWindow(QMainWindow):
         self.hint_label.setStyleSheet(f"color: {style.color('muted').name()};")
         main.addWidget(self.hint_label)
 
-        self.setCentralWidget(central)
+        # oben drüber: Inhalt oder Anmeldeseite
+        self.pages = QStackedWidget()
+        self.pages.addWidget(central)
+        self.login_view = None
+        self.setCentralWidget(self.pages)
         self.toast = Toast(central)
 
         QShortcut(QKeySequence("Ctrl+B"), self, self.on_sidebar_toggle)
         QShortcut(QKeySequence("Ctrl+F"), self, self.search_entry.setFocus)
+        # auch in offenen Dialogen: Strg+L sperrt die ganze App
+        lock = QShortcut(QKeySequence("Ctrl+L"), self, self.lock_requested.emit)
+        lock.setContext(Qt.ShortcutContext.ApplicationShortcut)
 
         vm.subscribe(self.refresh_header)
         self.set_view("Kacheln")
@@ -290,6 +298,38 @@ class MainWindow(QMainWindow):
         self.settings["sidebar_collapsed"] = self.sidebar.collapsed and not self.auto_collapsed
         self.settings["view"] = self.current_view
         self.settings["selected_group"] = self.vm.selected_group_id
+
+    # Anmelden und Sperren
+
+    def show_login(self, login_view):
+        # Anmeldeseite ersetzt den ganzen Fensterinhalt
+        self.hide_login()
+        self.login_view = login_view
+        self.pages.addWidget(login_view)
+        self.pages.setCurrentWidget(login_view)
+
+    def hide_login(self):
+        if self.login_view is not None:
+            self.pages.removeWidget(self.login_view)
+            self.login_view.hide()
+            self.login_view.deleteLater()   # erst nach dem laufenden Klick löschen
+            self.login_view = None
+        self.pages.setCurrentIndex(0)
+
+    def prepare_lock(self):
+        # alles schließen, was Klartext zeigen könnte: Menüs, Dialoge, Tooltip, Suche
+        QToolTip.hideText()
+        popup = QApplication.activePopupWidget()
+        while popup is not None:
+            popup.close()
+            popup = QApplication.activePopupWidget()
+        for widget in QApplication.topLevelWidgets():
+            if isinstance(widget, QDialog) and widget.isVisible():
+                widget.reject()
+        self.search_entry.blockSignals(True)   # Leeren soll keine neue Suche auslösen
+        self.search_entry.clear()
+        self.search_entry.blockSignals(False)
+        self.toast.hide()
 
     def closeEvent(self, event):
         self.save_state()

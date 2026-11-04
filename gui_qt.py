@@ -12,19 +12,20 @@ import threading
 import time
 import traceback
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication, QInputDialog, QLineEdit, QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 import single_instance
 from api_client import ApiClient, ApiError, ServiceUnavailable
 from clipboard_service import ClipboardService
+from lock_watcher import LockWatcher
+from qt_views.login_view import LoginView
 from qt_views.main_window import MainWindow
 from service.auth import load_or_create_token
 from service_runner import ServiceRunner
 from settings import load_settings, save_settings
 from startup import open_api_data, read_header_from_service
-from vault import Vault, WrongPassword
 from viewmodel import ClipboardViewModel
 
 APP_VERSION = "3.0.0-dev"
@@ -45,17 +46,10 @@ class IncomingBridge(QObject):
     arrived = Signal()
 
 
-def ask_password(header):
-    # vorläufige Anmeldung bis Schritt 4; liefert den Tresor oder None bei Abbruch
-    message = "Passwort:"
-    while True:
-        password, ok = QInputDialog.getText(None, APP_NAME, message, QLineEdit.EchoMode.Password)
-        if not ok:
-            return None
-        try:
-            return Vault.unlock(header, password)
-        except WrongPassword:
-            message = "Falsches Passwort. Bitte erneut eingeben:"
+class TimerHost:
+    # LockWatcher erwartet ein after(ms, funktion) wie bei Tkinter; in Qt erledigt das QTimer
+    def after(self, milliseconds, callback):
+        QTimer.singleShot(milliseconds, callback)
 
 
 def install_error_handler(service_runner):
@@ -110,28 +104,13 @@ def main():
         service_runner.stop()
         return 1
 
-    if header is None:
-        QMessageBox.information(None, APP_NAME, "Es gibt noch keinen Tresor. Bitte einmal mit der alten "
-                                                "Oberfläche (gui.py) anlegen, das Einrichten folgt in Schritt 4.")
-        service_runner.stop()
-        return 0
-
-    # Anmelden und Daten öffnen
-    vault = ask_password(header)
-    if vault is None:
-        service_runner.stop()
-        return 0
-    try:
-        repository = open_api_data(api, vault, is_new=False, header_changed=False)
-    except (OSError, ValueError, ApiError, ServiceUnavailable) as error:
-        QMessageBox.critical(None, APP_NAME, f"Die Daten konnten nicht geöffnet werden.\n\n{error}")
-        service_runner.stop()
-        return 1
-
     install_error_handler(service_runner)
 
-    # ViewModel und Zwischenablage verbinden
-    vm = ClipboardViewModel(repository)
+    # ViewModel startet gesperrt: keine Daten, bis die Anmeldung geklappt hat
+    vm = ClipboardViewModel(None)
+    vm.locked = True
+    vm._locked_group_id = settings["selected_group"]   # wird nach dem Entsperren gewählt
+
     bridge = IncomingBridge()
     bridge.arrived.connect(vm.process_incoming)
 
@@ -143,9 +122,35 @@ def main():
     service = ClipboardService(on_clipboard_changed)
     vm.service = service
 
-    # Fenster
-    vm.select_group_by_id(settings["selected_group"])
     window = MainWindow(vm, settings, APP_TITLE)
+    # aktueller Header (ändert sich z. B. nach "Passwort vergessen") und offene Daten
+    session = {"header": header, "repository": None}
+
+    def on_unlocked(vault, is_new, header_changed):
+        # liefert None bei Erfolg, sonst einen Fehlertext für die Anmeldeseite
+        try:
+            repository = open_api_data(api, vault, is_new, header_changed)
+        except (OSError, ValueError, ApiError, ServiceUnavailable) as error:
+            return f"Die Daten konnten nicht geöffnet werden: {error}"
+        session.update(header=vault.header, repository=repository)
+        vm.unlock(repository)
+        window.hide_login()
+        return None
+
+    def lock_app():
+        if vm.locked:
+            return
+        window.prepare_lock()
+        try:
+            service.clear()   # Zwischenablage leeren, z. B. ein gerade kopiertes Passwort
+        except Exception as error:
+            print(f"Zwischenablage konnte nicht geleert werden: {error}")
+        vm.lock()
+        repository, session["repository"] = session["repository"], None
+        repository.close()   # Klartext und Schlüssel entfernen
+        window.show_login(LoginView(session["header"], on_unlocked, locked=True))
+
+    window.lock_requested.connect(lock_app)
 
     def on_closing():
         try:
@@ -155,7 +160,11 @@ def main():
 
     window.closing.connect(on_closing)
     window.restore_state()
+    window.show_login(LoginView(header, on_unlocked))   # header None: Tresor anlegen
     window.show()
+
+    lock_watcher = LockWatcher(TimerHost(), lock_app, settings)
+    lock_watcher.start()
 
     threading.Thread(target=service.start, daemon=True).start()
     code = app.exec()
@@ -163,7 +172,8 @@ def main():
     # aufräumen: Dienst beenden, Klartext und Schlüssel überschreiben
     service_runner.stop()
     try:
-        repository.close()
+        if session["repository"] is not None:
+            session["repository"].close()
     except Exception as error:
         print(f"Aufräumen fehlgeschlagen: {error}")
     return code

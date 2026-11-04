@@ -45,6 +45,8 @@ class TableModel(QAbstractTableModel):
         self._on_vm_changed()
 
     def _wanted_columns(self):
+        if self.vm.locked:
+            return []   # gesperrt: keine Spalten, kein Zugriff auf Daten
         columns = list(self.vm.visible_columns)
         if self.compact:
             columns = [column for column in columns if column in COMPACT_COLUMNS]
@@ -124,7 +126,7 @@ class TableModel(QAbstractTableModel):
         return None
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
-        if orientation != Qt.Orientation.Horizontal or section >= len(self._columns):
+        if self.vm.locked or orientation != Qt.Orientation.Horizontal or section >= len(self._columns):
             return None
         column = self._columns[section]
         title, sort_key = COLUMNS[column]
