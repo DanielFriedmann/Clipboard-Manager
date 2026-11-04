@@ -5,6 +5,7 @@ from . import style
 from .links import link_target, open_link
 
 MAX_BUTTONS = 2   # höchstens so viele Knöpfe neben einem Feld
+EYE_SYMBOL = "\uE890"   # "View" aus Segoe MDL2 Assets
 
 
 class EditDialog(QDialog):
@@ -19,7 +20,7 @@ class EditDialog(QDialog):
         self.username_entry = None
         self.password_entry = None
 
-        self.setWindowTitle("Passwort benennen" if item.is_password else "Umbenennen")
+        self.setWindowTitle("Eigenschaften" if item.is_password else "Umbenennen")
         self.setModal(True)
         self.setMinimumWidth(420)
 
@@ -45,10 +46,16 @@ class EditDialog(QDialog):
                 "Benutzername (optional)", item.username,
                 buttons=[("Kopieren", lambda: self._copy(self.username_entry, "Benutzername"))])
 
-            self.password_entry, (self.reveal_button,) = self._add_field(
-                "Passwort", content, buttons=[("Anzeigen", self._toggle_reveal)])
+            # Auge in der Spalte von "Öffnen", Kopieren unter den anderen Kopieren-Knöpfen
+            self.password_entry, (self.reveal_button, _) = self._add_field(
+                "Passwort", content,
+                buttons=[(EYE_SYMBOL, self._toggle_reveal),
+                         ("Kopieren", lambda: self._copy(self.password_entry, "Passwort", sensitive=True))])
             self.password_entry.setEchoMode(QLineEdit.EchoMode.Password)
             self.password_entry.setReadOnly(True)   # nur ansehen, nicht ändern
+            self.reveal_button.setFont(style.font("normal", family=style.ICON_FAMILY))
+            self.reveal_button.setCheckable(True)   # gedrückt dargestellt, solange es sichtbar ist
+            self.reveal_button.setToolTip("Passwort anzeigen")
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Save).setText("Speichern")
@@ -85,10 +92,11 @@ class EditDialog(QDialog):
 
     # Ereignisse
 
-    def _copy(self, entry, label):
-        text = entry.text().strip()
+    def _copy(self, entry, label, sensitive=False):
+        # Passwörter unverändert, sonst Leerzeichen am Rand entfernen
+        text = entry.text() if sensitive else entry.text().strip()
         if text:
-            self.on_copy(text, label)
+            self.on_copy(text, label, sensitive)
 
     def _update_open_button(self):
         self.open_button.setEnabled(link_target(self.url_entry.text()) is not None)
@@ -99,9 +107,9 @@ class EditDialog(QDialog):
             open_link(url)
 
     def _toggle_reveal(self):
-        hidden = self.password_entry.echoMode() == QLineEdit.EchoMode.Password
-        self.password_entry.setEchoMode(QLineEdit.EchoMode.Normal if hidden else QLineEdit.EchoMode.Password)
-        self.reveal_button.setText("Verbergen" if hidden else "Anzeigen")
+        visible = self.reveal_button.isChecked()
+        self.password_entry.setEchoMode(QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password)
+        self.reveal_button.setToolTip("Passwort verbergen" if visible else "Passwort anzeigen")
 
     def _save(self):
         username = self.username_entry.text() if self.username_entry else None

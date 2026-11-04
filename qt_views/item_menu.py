@@ -8,7 +8,7 @@ def show_item_menu(parent, global_pos, vm, item, on_edit, on_copy):
     # on_copy(label) zeigt die Rückmeldung, z. B. "Benutzername kopiert"
     menu = QMenu(parent)
 
-    menu.addAction("Benennen …" if item.needs_review else "Umbenennen …", lambda: on_edit(item))
+    menu.addAction("Eigenschaften …" if item.is_password else "Umbenennen …", lambda: on_edit(item))
     if item.title:
         menu.addAction("Namen entfernen", lambda: vm.rename(item, "", item.username, item.url))
     menu.addSeparator()

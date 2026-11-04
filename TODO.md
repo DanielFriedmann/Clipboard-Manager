@@ -26,15 +26,16 @@
 [] Code Refaktorierung / Cleanen  
 [X] Speicherung  
 [X] Fensterposition speichern   
-[] System Schriftart und größe übernehmen  
+[X] System Schriftart und größe übernehmen  
 [X] Nur eine Instanz zulassen vom ClipboardManager  
 [X] Performance in der Kachelansicht  
 [X] Bug bei Skalierung beim Wechsel von Bildschirm  
 []  Passworteinträge müssen Link und Benutzername ein copy feld haben und beim kopieren sollte das nicht im manager landen.
 []  Feedback bei Einfügen in Zwischenablage "Bla Bla wurde in Zwischenablage kopiert"
 []  Updates in App checken
-[]  Bei schmaler Version zeit datum ausblenden Kachelversion
-[]  Tabellenversion spalten besseranpassbar machen
+[X]  Bei schmaler Version zeit datum ausblenden Kachelversion
+[]  Tabellenversion spalten besser anpassbar machen
+[]  Passwort such option
 
 ## Einstellungen
 [] Individualisierbarkeit  

@@ -36,6 +36,7 @@ class MainWindow(QMainWindow):
 
     closing = Signal()          # vor dem Schließen, z. B. um Einstellungen zu speichern
     lock_requested = Signal()   # Strg+L
+    settings_requested = Signal()   # Zahnrad
 
     def __init__(self, vm, settings, title):
         super().__init__()
@@ -58,7 +59,7 @@ class MainWindow(QMainWindow):
         self.sidebar = GroupSidebar(vm)
         self.sidebar.toggle_button.clicked.disconnect()
         self.sidebar.toggle_button.clicked.connect(self.on_sidebar_toggle)
-        self.sidebar.settings_button.setEnabled(False)   # Einstellungen folgen in Schritt 5
+        self.sidebar.settings_button.clicked.connect(self.settings_requested.emit)
         outer.addWidget(self.sidebar)
 
         main = QVBoxLayout()
@@ -111,9 +112,10 @@ class MainWindow(QMainWindow):
 
         # Umschalter Kacheln / Tabelle
         self.view_buttons = QButtonGroup(self)
-        for index, (name, symbol) in enumerate(zip(VIEWS, ("▤", "▦"))):
+        for index, (name, symbol) in enumerate(zip(VIEWS, ("\uE8A9", "\uE8FD"))):
             button = QToolButton()
             button.setText(symbol)
+            button.setFont(style.font("normal", family=style.ICON_FAMILY))   # Windows-Symbolschrift
             button.setCheckable(True)
             button.setToolTip(name)
             button.setFixedSize(32, 26)
@@ -237,9 +239,9 @@ class MainWindow(QMainWindow):
         # Rückmeldung nach jedem Kopieren
         self.toast.show_message("In die Zwischenablage kopiert" if label == "Eintrag" else f"{label} kopiert")
 
-    def copy_detail(self, text, label):
-        # Benutzername oder Adresse aus dem Dialog
-        self.vm.copy_text(text)
+    def copy_detail(self, text, label, sensitive=False):
+        # Benutzername, Adresse oder Passwort aus dem Dialog
+        self.vm.copy_text(text, sensitive=sensitive)
         self.show_copied(label)
 
     def open_item_menu(self, item, global_pos):

@@ -21,11 +21,14 @@ from api_client import ApiClient, ApiError, ServiceUnavailable
 from clipboard_service import ClipboardService
 from lock_watcher import LockWatcher
 from qt_views.login_view import LoginView
+from qt_views.settings_dialog import ChangePasswordDialog, NewRecoveryDialog, SettingsDialog
 from qt_views.main_window import MainWindow
 from service.auth import load_or_create_token
 from service_runner import ServiceRunner
 from settings import load_settings, save_settings
-from startup import open_api_data, read_header_from_service
+from startup import (change_vault_password, open_api_data, prepare_new_recovery,
+                     read_header_from_service, save_header)
+from vault import WrongPassword
 from viewmodel import ClipboardViewModel
 
 APP_VERSION = "3.0.0-dev"
@@ -151,6 +154,60 @@ def main():
         window.show_login(LoginView(session["header"], on_unlocked, locked=True))
 
     window.lock_requested.connect(lock_app)
+
+    # Einstellungen
+
+    def set_setting(key, value):
+        # sofort speichern, damit nichts verloren geht, falls die App abstürzt
+        settings[key] = value
+        try:
+            save_settings(settings)
+        except OSError as error:
+            print(f"Einstellungen konnten nicht gespeichert werden: {error}")
+
+    def change_password(parent):
+        def submit(current, new):
+            try:
+                session["header"] = change_vault_password(api, session["header"], current, new)
+            except WrongPassword:
+                return "Das aktuelle Passwort ist falsch."
+            except ServiceUnavailable:
+                return "Der Speicherdienst antwortet nicht. Das Passwort wurde nicht geändert."
+            except ApiError as error:
+                return f"Speichern fehlgeschlagen ({error.status}). Das Passwort wurde nicht geändert."
+            return None
+
+        ChangePasswordDialog(parent, submit).open()
+
+    def new_recovery(parent):
+        pending = {"header": None}   # vorbereiteter Header, bis der Code notiert ist
+
+        def prepare(password):
+            try:
+                pending["header"], code = prepare_new_recovery(session["header"], password)
+            except WrongPassword:
+                return None, "Das Passwort ist falsch."
+            return code, None
+
+        def confirm():
+            try:
+                save_header(api, pending["header"])
+            except ServiceUnavailable:
+                return "Der Speicherdienst antwortet nicht. Der alte Schlüssel bleibt gültig."
+            except ApiError as error:
+                return f"Speichern fehlgeschlagen ({error.status}). Der alte Schlüssel bleibt gültig."
+            session["header"] = pending["header"]
+            return None
+
+        NewRecoveryDialog(parent, prepare, confirm).open()
+
+    def open_settings():
+        if vm.locked:
+            return
+        SettingsDialog(window, settings, on_change=set_setting, on_lock_now=lock_app, version=APP_VERSION,
+                       on_change_password=change_password, on_new_recovery=new_recovery).open()
+
+    window.settings_requested.connect(open_settings)
 
     def on_closing():
         try:
