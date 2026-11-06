@@ -1,7 +1,7 @@
 ; Installer für den Zwischenablagen Manager (Inno Setup 7)
 
-#define MyAppName "Zwischenablagen Manager"
-#define MyAppVersion "2.0.0"
+#define MyAppName "abk-Clippy"
+#define MyAppVersion "3.0.0"
 #define MyAppPublisher "dadanschel"
 #define MyAppExeName "Zwischenablagen-Manager.exe"
 ; muss zum Namen in single_instance.py passen (ohne "Local\")
@@ -34,6 +34,9 @@ Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 Name: "autostart"; Description: "Beim Anmelden automatisch starten"; GroupDescription: "Autostart:"; Flags: unchecked
+
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\_internal"
 
 [Files]
 Source: "..\dist\Zwischenablagen-Manager\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

@@ -24,6 +24,9 @@ FORMAT_HISTORY = "CanIncludeInClipboardHistory"
 FORMAT_CLOUD = "CanUploadToCloudClipboard"
 FORMAT_VIEWER_IGNORE = "Clipboard Viewer Ignore"
 
+# eigene Markierung: diese Änderung kommt von uns und wird nicht als neuer Eintrag erfasst
+FORMAT_OWN_COPY = "AbkooClipboardManagerOwnCopy"
+
 DWORD_ZERO = (0).to_bytes(4, "little")
 
 
@@ -62,6 +65,7 @@ class ClipboardService:
         self._fmt_history = win32clipboard.RegisterClipboardFormat(FORMAT_HISTORY)
         self._fmt_cloud = win32clipboard.RegisterClipboardFormat(FORMAT_CLOUD)
         self._fmt_viewer_ignore = win32clipboard.RegisterClipboardFormat(FORMAT_VIEWER_IGNORE)
+        self._fmt_own_copy = win32clipboard.RegisterClipboardFormat(FORMAT_OWN_COPY)
 
     # Zugriff auf die Zwischenablage
 
@@ -109,6 +113,8 @@ class ClipboardService:
         with self._lock:
             self._open()
             try:
+                if win32clipboard.IsClipboardFormatAvailable(self._fmt_own_copy):
+                    return None   # von uns selbst kopiert
                 if not win32clipboard.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
                     return None
                 text = win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
@@ -130,6 +136,7 @@ class ClipboardService:
             try:
                 win32clipboard.EmptyClipboard()
                 win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
+                win32clipboard.SetClipboardData(self._fmt_own_copy, b"\x01")
                 if sensitive:
                     # Windows soll Passwörter nicht in Win+V oder die Cloud übernehmen
                     win32clipboard.SetClipboardData(self._fmt_exclude, b"\x00")
