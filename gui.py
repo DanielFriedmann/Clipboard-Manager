@@ -31,7 +31,7 @@ from startup import (change_vault_password, open_api_data, prepare_new_recovery,
 from vault import WrongPassword
 from viewmodel import ClipboardViewModel
 
-APP_VERSION = "3.0.0"
+APP_VERSION = "3.1.0"
 APP_TITLE = f"abk-Clippy  {APP_VERSION}"
 APP_NAME = "Zwischenablagen Manager"
 SERVICE_MESSAGE_PAUSE = 30   # Sekunden zwischen zwei Meldungen über den Speicherdienst
