@@ -117,6 +117,10 @@ class ApiRepository(EntryRepository):
                 update["created_at"] = item.created_at.isoformat()
             elif name == "kind":
                 update["kind"] = item.kind.value
+            elif name == "content":
+                update["content"] = _seal(self.vault, item.content, f"item:{item.id}:content")
+            elif name == "content_hash":
+                update["content_hash"] = self.vault.content_hash(item.content)
             else:
                 update[name] = getattr(item, name)
         return update
@@ -290,6 +294,26 @@ class ApiRepository(EntryRepository):
             item.url = _clean(url)
         item.needs_review = False
         self._send([self._fields(item, "details", "needs_review")])
+
+    def edit_item(self, item, title, username=None, url=None, content=None):
+        item.title = _clean(title)
+        if item.is_password:
+            item.username = _clean(username)
+            item.url = _clean(url)
+        item.needs_review = False
+        names = ["details", "needs_review"]
+        if content is not None:
+            # neu versiegelt (neue Nonce) und neuer Hash für die Duplikaterkennung
+            item.content = content
+            names += ["content", "content_hash"]
+            if not item.is_password:
+                item.kind = guess_kind(content)
+                names.append("kind")
+        try:
+            self._send([self._fields(item, *names)])   # alles in einer Anfrage
+        finally:
+            if item.is_password:
+                item.content = None   # Klartext nicht länger als nötig behalten
 
     def mark_password(self, item, is_password):
         if is_password:

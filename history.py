@@ -122,6 +122,14 @@ class ClipboardHistory(EntryRepository):
             item.url = _clean(url)
         item.needs_review = False
 
+    def edit_item(self, item, title, username=None, url=None, content=None):
+        self.rename_item(item, title, username, url)
+        if content is not None:
+            # Position, Zeitstempel und Gruppe bleiben, nur der Inhalt ändert sich
+            item.content = content
+            if not item.is_password:
+                item.kind = guess_kind(content)   # aus Text kann ein Link werden und umgekehrt
+
     def mark_password(self, item, is_password):
         if is_password:
             if not item.is_password:

@@ -441,6 +441,13 @@ class ClipboardViewModel:
         self.history.rename_item(item, title, username, url)
         self._notify()
 
+    def edit(self, item, title, username=None, url=None, content=None):
+        # content None: Inhalt unverändert; leerer Inhalt wird nicht gespeichert
+        if content is not None and not content.strip():
+            content = None
+        self.history.edit_item(item, title, username, url, content)
+        self._notify()
+
     def set_password(self, item, is_password):
         self.history.mark_password(item, is_password)
         self._notify()

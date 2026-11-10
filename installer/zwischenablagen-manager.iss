@@ -1,7 +1,7 @@
 ; Installer für den Zwischenablagen Manager (Inno Setup 7)
 
 #define MyAppName "abk-Clippy"
-#define MyAppVersion "3.0.0"
+#define MyAppVersion "3.1.0"
 #define MyAppPublisher "dadanschel"
 #define MyAppExeName "Zwischenablagen-Manager.exe"
 ; muss zum Namen in single_instance.py passen (ohne "Local\")
