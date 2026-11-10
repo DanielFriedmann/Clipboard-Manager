@@ -43,7 +43,7 @@
 [] Always Vordergrund Toggle  
 [] Farbeinstellungen   
 [X] Passwort ändern  
-[] Tastenkombiationen STRG L B usw  
+[] Tastenkombiationen STRG L B P usw  
 
 ## Version 1.0.0 Rollout Review
 --  Einfügen im Clipboard nur mit Doppelklick aus Tabellenansicht - Yay or Nay?   
@@ -66,4 +66,6 @@
 --  Dateien / Bilder hinzufügen
 --  abk-Clippy
 --  software quellcode dokumentation automatisieren
---  Icon aktualisieren - moderner, kein eckig sondern modern mit schattierung
+--  Icon aktualisieren - moderner, kein eckig sondern modern mit schattierung  
+
+--  BUG firefox extension passbolt wird als firefox erkannt und nicht als passwort aus passwortmanager  

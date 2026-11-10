@@ -16,6 +16,7 @@ DEFAULTS = {
     "lock_minutes": 15,             # automatisch sperren nach so vielen Minuten, 0 = nie
     "lock_on_windows_lock": True,   # mitsperren, wenn Windows gesperrt wird (Win+L)
     "qt_geometry": None,            # Fensterposition und -größe der Qt-Oberfläche
+    "capture_enabled": True,        # Zwischenablage aufzeichnen; aus = pausiert
 }
 
 

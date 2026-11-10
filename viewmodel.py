@@ -24,7 +24,8 @@ PAGE_SIZE = 50   # so viele Einträge werden auf einmal geladen
 class ClipboardViewModel:
     def __init__(self, history):
         self.history = history
-        self.service = None
+        self.capture_enabled = True     # aus: neue Kopien werden nicht gespeichert
+        self._service = None
         self.checked = set()            # markierte Einträge
         self.selected_group = None
 
@@ -59,6 +60,32 @@ class ClipboardViewModel:
             callback()
         self.scroll_to_top = False
 
+    # Aufzeichnung
+
+    @property
+    def service(self):
+        return self._service
+
+    @service.setter
+    def service(self, service):
+        # Service kann nach dem Laden der Einstellungen kommen: Zustand gleich übernehmen
+        self._service = service
+        self._apply_capture()
+
+    def _apply_capture(self):
+        if self._service is not None:
+            self._service.paused = not self.capture_enabled
+
+    def set_capture_enabled(self, enabled):
+        self.capture_enabled = enabled
+        self._apply_capture()
+        if not enabled:
+            self._discard_incoming()   # was noch unterwegs ist, ebenfalls verwerfen
+        self._notify()
+
+    def toggle_capture(self):
+        self.set_capture_enabled(not self.capture_enabled)
+
     # Service-Thread → GUI-Thread
 
     def receive_capture(self, capture):
@@ -68,10 +95,10 @@ class ClipboardViewModel:
     def process_incoming(self):
         # läuft im GUI-Thread, wird regelmäßig von der Oberfläche aufgerufen
 
-        if self.locked:
-            self._discard_incoming()   # gesperrt: nichts sammeln
+        if self.locked or not self.capture_enabled:
+            self._discard_incoming()   # gesperrt oder pausiert: nichts sammeln
             return
-        
+
         changed = False
         while not self._incoming.empty():
             capture = self._incoming.get()

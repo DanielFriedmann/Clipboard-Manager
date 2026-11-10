@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 
 class EntryRepository(ABC):
     # Alles, was das ViewModel vom Speicher braucht.
-    # Heute erfüllt ClipboardHistory diese Schnittstelle, später ApiRepository über HTTP.
+
 
     # Gruppen
 
