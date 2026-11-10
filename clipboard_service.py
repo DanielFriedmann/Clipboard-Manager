@@ -58,6 +58,9 @@ class ClipboardService:
     def __init__(self, on_clipboard_changed):
         self.on_clipboard_changed = on_clipboard_changed
         self.hwnd = None
+        # pausiert: Änderungen werden gar nicht erst gelesen
+        # Windows meldet nur neue Änderungen, nach dem Fortsetzen kommt also nichts nachträglich
+        self.paused = False
         self._lock = threading.Lock()   # immer nur ein Thread an der Zwischenablage
 
         # eigene Formate anmelden, Windows liefert dafür eine feste Nummer
@@ -158,6 +161,8 @@ class ClipboardService:
 
     def _wnd_proc(self, hwnd, msg, wparam, lparam):
         if msg == WM_CLIPBOARDUPDATE:
+            if self.paused:
+                return 0
             try:
                 capture = self.read_capture()
             except pywintypes.error as error:

@@ -101,6 +101,20 @@ class Vault:
 
     @classmethod
     def unlock(cls, header, password):
+
+        """Öffnet den Tresor mit dem Passwort.
+
+        Args:
+            header: Header aus der vault.json mit den eingepackten Schlüsseln.
+            password: Passwort des Benutzers.
+
+        Returns:
+            Den geöffneten Tresor.
+
+        Raises:
+            WrongPassword: Wenn das Passwort nicht passt.
+        """
+        
         dek = _unwrap(header["password"], password, PURPOSE_PASSWORD, header["kdf"])
         return cls(dek, header)
 

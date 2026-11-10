@@ -1,8 +1,8 @@
 from PySide6.QtCore import QByteArray, Qt, Signal
 from PySide6.QtGui import QActionGroup, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QButtonGroup, QDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
-                               QMessageBox, QPushButton, QStackedWidget, QToolButton, QToolTip,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QButtonGroup, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
+                               QMainWindow, QMenu, QMessageBox, QPushButton, QStackedWidget, QToolButton,
+                               QToolTip, QVBoxLayout, QWidget)
 
 from . import style
 from .card_list import CardListView
@@ -23,6 +23,10 @@ SORT_OPTIONS = {
     "Gruppe": "group",
     "Favoriten": "favorite",
 }
+
+PAUSE_SYMBOL = "\uE769"   # Segoe MDL2: Pause
+PLAY_SYMBOL = "\uE768"    # Segoe MDL2: Play
+PAUSED_COLORS = {"background": ("#fff4e5", "#4a3312"), "text": ("#8a4b00", "#ffcc80")}
 
 VIEWS = ("Kacheln", "Tabelle")
 HINTS = {
@@ -69,6 +73,7 @@ class MainWindow(QMainWindow):
 
         main.addLayout(self._build_header())
         main.addLayout(self._build_toolbar())
+        main.addWidget(self._build_paused_banner())
 
         # Ansichten: Kacheln und Tabelle zeigen dieselben Einträge
         self.card_view = CardListView(vm, on_edit=self.open_edit_dialog)
@@ -94,6 +99,7 @@ class MainWindow(QMainWindow):
 
         QShortcut(QKeySequence("Ctrl+B"), self, self.on_sidebar_toggle)
         QShortcut(QKeySequence("Ctrl+F"), self, self.search_entry.setFocus)
+        QShortcut(QKeySequence("Ctrl+P"), self, self.on_capture_toggle)
         # auch in offenen Dialogen: Strg+L sperrt die ganze App
         lock = QShortcut(QKeySequence("Ctrl+L"), self, self.lock_requested.emit)
         lock.setContext(Qt.ShortcutContext.ApplicationShortcut)
@@ -124,6 +130,16 @@ class MainWindow(QMainWindow):
         self.view_buttons.idClicked.connect(lambda index: self.set_view(VIEWS[index]))
 
         header.addStretch(1)
+
+        # Aufzeichnung pausieren und fortsetzen
+        self.capture_button = QToolButton()
+        self.capture_button.setFont(style.font("normal", family=style.ICON_FAMILY))
+        self.capture_button.setCheckable(True)   # gedrückt dargestellt, solange pausiert
+        self.capture_button.setFixedSize(32, 26)
+        self.capture_button.clicked.connect(self.on_capture_toggle)
+        header.addWidget(self.capture_button)
+        header.addSpacing(10)
+
         self.count_label = QLabel()
         self.count_label.setFont(style.font("small"))
         self.count_label.setStyleSheet(f"color: {style.color('muted').name()};")
@@ -157,10 +173,31 @@ class MainWindow(QMainWindow):
         toolbar.insertWidget(1, self.delete_checked_button)
         return toolbar
 
+    def _build_paused_banner(self):
+        # Hinweis, solange nichts aufgezeichnet wird; bleibt sichtbar, auch nach einem Neustart
+        dark = 1 if style.is_dark() else 0
+        self.paused_banner = QFrame()
+        self.paused_banner.setObjectName("pausedBanner")
+        self.paused_banner.setStyleSheet(
+            f"#pausedBanner {{ background: {PAUSED_COLORS['background'][dark]}; border-radius: 6px; }}"
+            f"#pausedBanner QLabel {{ color: {PAUSED_COLORS['text'][dark]}; }}")
+        row = QHBoxLayout(self.paused_banner)
+        row.setContentsMargins(12, 6, 8, 6)
+        self.paused_label = QLabel()
+        self.paused_label.setWordWrap(True)
+        row.addWidget(self.paused_label, 1)
+        resume = QPushButton("Fortsetzen")
+        resume.setAutoDefault(False)
+        resume.clicked.connect(self.on_capture_toggle)
+        row.addWidget(resume)
+        self.paused_banner.hide()
+        return self.paused_banner
+
     # Kopfzeile aktualisieren
 
     def refresh_header(self):
         vm = self.vm
+        self._refresh_capture()
         if vm.locked:
             self.title_label.setText("")
             self.count_label.setText("")
@@ -175,6 +212,24 @@ class MainWindow(QMainWindow):
         self.delete_checked_button.setText(f"Löschen ({count})" if self.narrow
                                            else f"Markierte löschen ({count})")
         self.delete_checked_button.setEnabled(count > 0)
+
+    def _refresh_capture(self):
+        paused = not self.vm.capture_enabled
+        self.capture_button.setText(PLAY_SYMBOL if paused else PAUSE_SYMBOL)
+        self.capture_button.setChecked(paused)
+        self.capture_button.setToolTip("Aufzeichnung fortsetzen (Strg+P)" if paused
+                                       else "Aufzeichnung pausieren (Strg+P)")
+        self.paused_label.setText("Aufzeichnung pausiert" if self.narrow
+                                  else "Aufzeichnung pausiert – neue Kopien werden nicht gespeichert")
+        self.paused_banner.setVisible(paused and not self.vm.locked)
+
+    # Aufzeichnung
+
+    def on_capture_toggle(self):
+        if self.vm.locked:
+            return
+        self.vm.toggle_capture()
+        self.settings["capture_enabled"] = self.vm.capture_enabled
 
     # Ansicht wechseln
 
@@ -294,12 +349,14 @@ class MainWindow(QMainWindow):
             self.sidebar.toggle_collapsed()
         if self.settings.get("view") in VIEWS:
             self.set_view(self.settings["view"])
+        self.vm.set_capture_enabled(self.settings.get("capture_enabled", True) is not False)
 
     def save_state(self):
         self.settings["qt_geometry"] = bytes(self.saveGeometry().toBase64()).decode("ascii")
         self.settings["sidebar_collapsed"] = self.sidebar.collapsed and not self.auto_collapsed
         self.settings["view"] = self.current_view
         self.settings["selected_group"] = self.vm.selected_group_id
+        self.settings["capture_enabled"] = self.vm.capture_enabled
 
     # Anmelden und Sperren
 
