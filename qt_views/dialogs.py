@@ -1,26 +1,31 @@
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QGridLayout, QLabel, QLineEdit,
-                               QPushButton, QVBoxLayout)
+                               QPlainTextEdit, QPushButton, QVBoxLayout)
 
 from . import style
 from .links import link_target, open_link
 
 MAX_BUTTONS = 2   # höchstens so viele Knöpfe neben einem Feld
 EYE_SYMBOL = "\uE890"   # "View" aus Segoe MDL2 Assets
+CONTENT_LINES = (4, 12)   # Inhaltsfeld mindestens und höchstens so viele Zeilen hoch
 
 
 class EditDialog(QDialog):
-    # Name und bei Passwörtern Adresse, Benutzername und Passwort ansehen und bearbeiten
-    # on_save(title, username, url) speichert, on_copy(text, label) kopiert z. B. den Benutzernamen
+    # Name und Inhalt bearbeiten, bei Passwörtern zusätzlich Adresse und Benutzername
+    # on_save(title, username, url, content) speichert; content None = Inhalt unverändert
+    # on_copy(text, label, sensitive) kopiert z. B. den Benutzernamen
 
     def __init__(self, parent, item, on_save, on_copy, content=None):
         super().__init__(parent)
         self.on_save = on_save
         self.on_copy = on_copy
+        self.original_content = content or ""
         self.url_entry = None
         self.username_entry = None
         self.password_entry = None
+        self.content_edit = None
 
-        self.setWindowTitle("Eigenschaften" if item.is_password else "Umbenennen")
+        self.setWindowTitle("Eigenschaften" if item.is_password else "Bearbeiten")
         self.setModal(True)
         self.setMinimumWidth(420)
 
@@ -52,19 +57,27 @@ class EditDialog(QDialog):
                 buttons=[(EYE_SYMBOL, self._toggle_reveal),
                          ("Kopieren", lambda: self._copy(self.password_entry, "Passwort", sensitive=True))])
             self.password_entry.setEchoMode(QLineEdit.EchoMode.Password)
-            self.password_entry.setReadOnly(True)   # nur ansehen, nicht ändern
+            self.password_entry.textChanged.connect(self._update_save_button)
             self.reveal_button.setFont(style.font("normal", family=style.ICON_FAMILY))
             self.reveal_button.setCheckable(True)   # gedrückt dargestellt, solange es sichtbar ist
             self.reveal_button.setToolTip("Passwort anzeigen")
+        else:
+            self.content_edit = self._add_content_field(content)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Save).setText("Speichern")
         buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Abbrechen")
+        self.save_button = buttons.button(QDialogButtonBox.StandardButton.Save)
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
         layout.addSpacing(12)
         layout.addWidget(buttons)
 
+        # im Inhaltsfeld macht Enter eine neue Zeile, Strg+Enter speichert überall
+        for keys in ("Ctrl+Return", "Ctrl+Enter"):
+            QShortcut(QKeySequence(keys), self, self._save)
+
+        self._update_save_button()
         self.title_entry.setFocus()
 
     # Aufbau: Beschriftung über dem Feld, Knöpfe rechts daneben
@@ -90,7 +103,34 @@ class EditDialog(QDialog):
         self._row += 2
         return entry, tuple(created)
 
+    def _add_content_field(self, content):
+        caption = QLabel("Inhalt")
+        caption.setFont(style.font("small"))
+        caption.setStyleSheet(f"color: {style.color('muted').name()};")
+        self.fields.addWidget(caption, self._row, 0, 1, MAX_BUTTONS + 1)
+
+        edit = QPlainTextEdit(content or "")
+        edit.setTabChangesFocus(True)   # Tab springt weiter statt einzurücken
+        line = edit.fontMetrics().lineSpacing()
+        lines = min(max(edit.toPlainText().count("\n") + 1, CONTENT_LINES[0]), CONTENT_LINES[1])
+        edit.setMinimumHeight(line * lines + 12)
+        edit.textChanged.connect(self._update_save_button)
+        self.fields.addWidget(edit, self._row + 1, 0, 1, MAX_BUTTONS + 1)
+        self._row += 2
+        return edit
+
+    def _content(self):
+        if self.content_edit is not None:
+            return self.content_edit.toPlainText()
+        if self.password_entry is not None:
+            return self.password_entry.text()
+        return self.original_content
+
     # Ereignisse
+
+    def _update_save_button(self):
+        # leerer Inhalt wird nicht gespeichert, löschen geht über das Menü
+        self.save_button.setEnabled(bool(self._content().strip()))
 
     def _copy(self, entry, label, sensitive=False):
         # Passwörter unverändert, sonst Leerzeichen am Rand entfernen
@@ -112,13 +152,18 @@ class EditDialog(QDialog):
         self.reveal_button.setToolTip("Passwort verbergen" if visible else "Passwort anzeigen")
 
     def _save(self):
+        content = self._content()
+        if not content.strip():
+            return
         username = self.username_entry.text() if self.username_entry else None
         url = self.url_entry.text() if self.url_entry else None
-        self.on_save(self.title_entry.text(), username, url)
+        changed = content if content != self.original_content else None
+        self.on_save(self.title_entry.text(), username, url, changed)
         self.accept()
 
     def done(self, result):
         # sichtbares Passwort sofort aus dem Feld nehmen
         if self.password_entry is not None:
             self.password_entry.clear()
+        self.original_content = ""
         super().done(result)

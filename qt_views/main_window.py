@@ -303,10 +303,11 @@ class MainWindow(QMainWindow):
         show_item_menu(self, global_pos, self.vm, item, self.open_edit_dialog, self.show_copied)
 
     def open_edit_dialog(self, item):
-        content = self.vm.item_content(item) if item.is_password else None
+        # bei Passwörtern wird der Inhalt erst jetzt geholt
         dialog = EditDialog(self, item,
-                            on_save=lambda title, username, url: self.vm.rename(item, title, username, url),
-                            on_copy=self.copy_detail, content=content)
+                            on_save=lambda title, username, url, content:
+                                self.vm.edit(item, title, username, url, content),
+                            on_copy=self.copy_detail, content=self.vm.item_content(item))
         dialog.open()   # modal, aber ohne die Ereignisschleife anzuhalten
 
     # Schmaler und breiter Modus

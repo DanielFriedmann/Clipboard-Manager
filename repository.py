@@ -78,6 +78,10 @@ class EntryRepository(ABC):
         """Titel und bei Passwörtern Benutzer und Adresse setzen."""
 
     @abstractmethod
+    def edit_item(self, item, title, username=None, url=None, content=None):
+        """Wie rename_item, zusätzlich neuer Inhalt; content None = Inhalt unverändert."""
+
+    @abstractmethod
     def mark_password(self, item, is_password):
         """Als Passwort markieren oder die Markierung entfernen."""
 
